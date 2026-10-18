@@ -1,23 +1,19 @@
 import html
 import re
 
-# [Button text](buttonurl:https://example.com)        -> new row
-# [Button text](buttonurl:https://example.com:same)   -> same row as previous button
 BTN_RE = re.compile(r"\[(.+?)\]\(buttonurl:(.+?)(:same)?\)")
 TAG_RE = re.compile(r"<[^>]+>")
 
 
-def _plain(s: str) -> str:
-    """Strip html tags (Telegram turns bare links into <a> tags) and unescape."""
+def _plain(s):
     return html.unescape(TAG_RE.sub("", s)).strip()
 
 
-def _valid_url(url: str) -> bool:
+def _valid_url(url):
     return url.lower().startswith(("http://", "https://", "tg://"))
 
 
-def parse_buttons(text: str):
-    """Return (text_without_button_syntax, rows) where rows = [[{"text","url"}, ...], ...]."""
+def parse_buttons(text):
     text = text or ""
     rows = []
     for m in BTN_RE.finditer(text):
@@ -36,8 +32,7 @@ def parse_buttons(text: str):
     return clean, rows
 
 
-def split_keyword(rest: str):
-    """Split '"multi word" body' or 'word body' into (keyword, body). Keyword is lowercased."""
+def split_keyword(rest):
     rest = (rest or "").strip()
     m = re.match(r'^(?:"|&quot;|“)(.+?)(?:"|&quot;|”)\s*(.*)$', rest, re.S)
     if m:
@@ -51,5 +46,5 @@ def split_keyword(rest: str):
     return _plain(kw).lower(), body.strip()
 
 
-def keyword_matches(keyword: str, text: str) -> bool:
+def keyword_matches(keyword, text):
     return re.search(rf"(?<!\w){re.escape(keyword)}(?!\w)", text, re.IGNORECASE) is not None
