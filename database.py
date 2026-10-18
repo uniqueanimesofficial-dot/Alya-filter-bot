@@ -12,8 +12,7 @@ async def init_db():
     await filters_col.create_index([("group_id", 1), ("keyword", 1)], unique=True)
 
 
-# ---------------------------------------------------------------- filters
-async def save_filter(group_id: int, keyword: str, text, file_type, file_id, buttons):
+async def save_filter(group_id, keyword, text, file_type, file_id, buttons):
     await filters_col.update_one(
         {"group_id": group_id, "keyword": keyword},
         {"$set": {"text": text, "file_type": file_type, "file_id": file_id, "buttons": buttons}},
@@ -21,29 +20,27 @@ async def save_filter(group_id: int, keyword: str, text, file_type, file_id, but
     )
 
 
-async def get_filter(group_id: int, keyword: str):
+async def get_filter(group_id, keyword):
     return await filters_col.find_one({"group_id": group_id, "keyword": keyword})
 
 
-async def get_keywords(group_id: int):
+async def get_keywords(group_id):
     cursor = filters_col.find({"group_id": group_id}, {"keyword": 1})
     kws = [d["keyword"] async for d in cursor]
-    # longest first so "good morning" wins over "good"
     return sorted(kws, key=len, reverse=True)
 
 
-async def delete_filter(group_id: int, keyword: str) -> bool:
+async def delete_filter(group_id, keyword):
     res = await filters_col.delete_one({"group_id": group_id, "keyword": keyword})
     return res.deleted_count > 0
 
 
-async def delete_all_filters(group_id: int) -> int:
+async def delete_all_filters(group_id):
     res = await filters_col.delete_many({"group_id": group_id})
     return res.deleted_count
 
 
-# ------------------------------------------------------------ connections
-async def add_connection(user_id: int, group_id: int):
+async def add_connection(user_id, group_id):
     await conn_col.update_one(
         {"_id": user_id},
         {"$addToSet": {"groups": group_id}, "$set": {"active": group_id}},
@@ -51,7 +48,7 @@ async def add_connection(user_id: int, group_id: int):
     )
 
 
-async def remove_connection(user_id: int, group_id: int):
+async def remove_connection(user_id, group_id):
     doc = await conn_col.find_one({"_id": user_id})
     if not doc:
         return
@@ -62,15 +59,15 @@ async def remove_connection(user_id: int, group_id: int):
     await conn_col.update_one({"_id": user_id}, {"$set": {"groups": groups, "active": active}})
 
 
-async def get_connections(user_id: int):
+async def get_connections(user_id):
     doc = await conn_col.find_one({"_id": user_id})
     return (doc or {}).get("groups", []), (doc or {}).get("active")
 
 
-async def set_active(user_id: int, group_id: int):
+async def set_active(user_id, group_id):
     await conn_col.update_one({"_id": user_id}, {"$set": {"active": group_id}})
 
 
-async def get_active(user_id: int):
+async def get_active(user_id):
     _, active = await get_connections(user_id)
     return active
