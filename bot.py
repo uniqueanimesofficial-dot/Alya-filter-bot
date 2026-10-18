@@ -1,4 +1,5 @@
 import asyncio, html, logging, os, re
+asyncio.set_event_loop(asyncio.new_event_loop())  # Pyrogram needs a loop at import time (Python 3.12+)
 from aiohttp import ClientSession, ClientTimeout, web
 from dotenv import load_dotenv
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -109,6 +110,11 @@ async def send(c, m, d):
 
 
 # ---------------------------------------------------------------- basics
+@app.on_message(group=-1)
+async def debug_log(c, m):  # shows in Render logs whenever a message reaches the bot
+    log.info("update: chat=%s user=%s text=%r", m.chat.id, m.from_user and m.from_user.id, (m.text or m.caption or "")[:40])
+
+
 @app.on_message(filters.command(["start", "help"]))
 async def start(c, m):
     await c.send_chat_action(m.chat.id, ChatAction.TYPING)
@@ -344,9 +350,14 @@ async def ping():
 
 async def main():
     await web_start(); asyncio.create_task(ping())
-    await fl.create_index([("g", 1), ("k", 1)], unique=True)
-    ADMINS.update([d["_id"] async for d in ad.find()]); LINK.update([d["_id"] async for d in st.find({"al": True})])
-    await app.start(); log.info("started @%s", (await app.get_me()).username)
+    log.info("connecting to Telegram...")
+    await app.start(); log.info("STARTED as @%s - send /start to it", (await app.get_me()).username)
+    try:
+        await fl.create_index([("g", 1), ("k", 1)], unique=True)
+        ADMINS.update([d["_id"] async for d in ad.find()]); LINK.update([d["_id"] async for d in st.find({"al": True})])
+        log.info("MongoDB OK")
+    except Exception as e:
+        log.error("MongoDB problem (filters will not work): %s", e)
     await idle(); await app.stop()
 
 
