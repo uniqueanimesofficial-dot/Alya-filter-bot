@@ -1,382 +1,353 @@
-import asyncio
-import logging
-
+import asyncio, html, logging, os, re
+from aiohttp import ClientSession, ClientTimeout, web
+from dotenv import load_dotenv
+from motor.motor_asyncio import AsyncIOMotorClient
 from pyrogram import Client, filters, idle
-from pyrogram.enums import ChatMemberStatus, ChatType, ParseMode
-from pyrogram.errors import FloodWait
-from pyrogram.types import (
-    CallbackQuery,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    Message,
-)
+from pyrogram.enums import ChatAction, ChatMemberStatus as S, ChatType as T, MessageEntityType as E, ParseMode
+from pyrogram.errors import ChannelPrivate, ChatWriteForbidden, FloodWait, UserNotParticipant
+from pyrogram.types import InlineKeyboardButton as B, InlineKeyboardMarkup as M
 
-import database as db
-from config import API_HASH, API_ID, BOT_TOKEN
-from keep_alive import ping_forever, start_web
-from utils import keyword_matches, parse_buttons, split_keyword
+load_dotenv(); env = os.environ.get
+API_ID, API_HASH, TOKEN, MONGO = int(env("API_ID", 0)), env("API_HASH"), env("BOT_TOKEN"), env("MONGO_URI")
+OWNER = int(env("OWNER_ID", 0))
+assert API_ID and API_HASH and TOKEN and MONGO and OWNER, "set API_ID, API_HASH, BOT_TOKEN, MONGO_URI, OWNER_ID"
+logging.basicConfig(level=logging.INFO); log = logging.getLogger("fb")
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-log = logging.getLogger("filterbot")
+db = AsyncIOMotorClient(MONGO)[env("DB_NAME", "FilterBot")]
+fl, cn, ch, ad, st = db.filters, db.connections, db.chats, db.admins, db.settings
+app = Client("fb", api_id=API_ID, api_hash=API_HASH, bot_token=TOKEN, parse_mode=ParseMode.HTML, in_memory=True)
 
-app = Client(
-    "filterbot",
-    api_id=API_ID,
-    api_hash=API_HASH,
-    bot_token=BOT_TOKEN,
-    parse_mode=ParseMode.HTML,
-    in_memory=True,
-)
+GRP = (T.GROUP, T.SUPERGROUP)
+MEDIA = ("photo", "video", "animation", "document", "audio", "voice", "video_note", "sticker")
+KW, LINK, ADMINS, SEEN = {}, set(), set(), set()
+BTN, TAG = re.compile(r"\[(.+?)\]\(buttonurl:(.+?)(:same)?\)"), re.compile(r"<[^>]+>")
+plain = lambda s: html.unescape(TAG.sub("", s)).strip()
 
-GROUP_TYPES = (ChatType.GROUP, ChatType.SUPERGROUP)
-MEDIA_TYPES = ("photo", "video", "animation", "document", "audio", "voice", "video_note", "sticker")
-NO_CAPTION = ("sticker", "video_note")
-KW_CACHE = {}
-
-HELP_TEXT = """<b>Filter Bot</b>
-
-Save text / media filters with inline buttons. When someone sends the keyword in the group, I reply with it.
-
-<b>Admin commands</b> (group, or PM after /connect)
-• <code>/filter keyword</code> (reply to a message / media) - save a filter
-• <code>/filter keyword your text here</code> - save a text filter
-• <code>/filter "multi word keyword" ...</code> - keyword with spaces
-• <code>/filters</code> - list filters
-• <code>/del keyword</code> - delete a filter
-• <code>/delall</code> - delete all (group owner only)
-
-<b>Buttons</b>
-<code>[Google](buttonurl:https://google.com)</code>
-<code>[Two](buttonurl:https://b.com:same)</code> -> same row
-
-<b>Connect</b>
-• Send <code>/connect</code> in your group, then manage filters from my PM
-• or in PM: <code>/connect -100xxxxxxxxxx</code>
-• <code>/connections</code> - switch / remove groups
-• <code>/disconnect</code> - disconnect"""
+HELP = """<b>Filter Bot</b>
+<b>Admins</b> (group, or PM after /connect)
+/filter word - reply to a msg/media to save it
+/filter "two words" text - text filter
+/filters - list | /del word - delete | /delall - delete all (owner)
+/antilink on|off - delete links from members
+Buttons: <code>[Name](buttonurl:https://x.com)</code> (add <code>:same</code> after the url for same row)
+/connect (in group) or /connect -100id (in PM) | /connections | /disconnect
+<b>Bot owner/admins</b>
+/broadcast (reply) - send to all groups &amp; channels | /stats
+/addadmin id | /rmadmin id | /admins (owner only)"""
 
 
-async def is_admin(client, chat_id, user_id, owner_only=False):
-    try:
-        member = await client.get_chat_member(chat_id, user_id)
-    except Exception:
-        return False
-    allowed = (ChatMemberStatus.OWNER,) if owner_only else (ChatMemberStatus.OWNER, ChatMemberStatus.ADMINISTRATOR)
-    return member.status in allowed
+def parse(t):
+    rows = []
+    for m in BTN.finditer(t or ""):
+        lb, url = plain(m[1]), plain(m[2])
+        if url.lower().startswith("t.me/"): url = "https://" + url
+        if not lb or not url.lower().startswith(("http://", "https://", "tg://")): continue
+        b = {"text": lb, "url": url}
+        if m[3] and rows: rows[-1].append(b)
+        else: rows.append([b])
+    return BTN.sub("", t or "").strip(), rows
 
 
-async def get_target(client, message, owner_only=False):
-    if not message.from_user:
-        return None
-    uid = message.from_user.id
+def kwsplit(s):
+    s = (s or "").strip()
+    m = re.match(r'^(?:"|&quot;|“)(.+?)(?:"|&quot;|”)\s*(.*)$', s, re.S)
+    if m: k, b = m[1], m[2]
+    else:
+        p = s.split(None, 1)
+        k, b = (p[0], p[1] if len(p) > 1 else "") if p else ("", "")
+    return plain(k).lower(), b.strip()
 
-    if message.chat.type in GROUP_TYPES:
-        if not await is_admin(client, message.chat.id, uid, owner_only):
-            await message.reply_text("Only the group owner can do this." if owner_only else "Only admins can use this command.")
+
+def sudo(u): return u == OWNER or u in ADMINS
+
+
+async def is_adm(c, cid, uid, owner=False):
+    if sudo(uid): return True
+    try: m = await c.get_chat_member(cid, uid)
+    except Exception: return False
+    return m.status in ((S.OWNER,) if owner else (S.OWNER, S.ADMINISTRATOR))
+
+
+async def target(c, m, owner=False):
+    if not m.from_user: return None
+    u = m.from_user.id
+    if m.chat.type in GRP: g = m.chat.id
+    else:
+        g = (await cn.find_one({"_id": u}) or {}).get("active")
+        if not g:
+            await m.reply_text("Not connected. Send /connect in your group, or /connect -100id here.")
             return None
-        return message.chat.id
-
-    gid = await db.get_active(uid)
-    if not gid:
-        await message.reply_text(
-            "You're not connected to any group.\nSend <code>/connect</code> in your group, or "
-            "<code>/connect -100xxxxxxxxxx</code> here."
-        )
-        return None
-    if not await is_admin(client, gid, uid, owner_only):
-        await message.reply_text("You're no longer an admin (or owner) of the connected group.")
-        return None
-    return gid
+    if await is_adm(c, g, u, owner): return g
+    await m.reply_text("Only the group owner can do this." if owner else "Admins only.")
+    return None
 
 
-def extract_media(msg):
-    for t in MEDIA_TYPES:
-        m = getattr(msg, t, None)
-        if m:
-            return t, m.file_id
-    return None, None
+async def title(c, g):
+    try: return (await c.get_chat(g)).title or str(g)
+    except Exception: return str(g)
 
 
-def build_markup(rows):
-    if not rows:
-        return None
-    return InlineKeyboardMarkup([[InlineKeyboardButton(b["text"], url=b["url"]) for b in row] for row in rows])
+async def conn_set(u, g, add=True):
+    d = await cn.find_one({"_id": u}) or {}
+    gs = [x for x in d.get("groups", []) if x != g]
+    if add: gs.append(g)
+    act = g if add else (d.get("active") if d.get("active") != g else (gs[-1] if gs else None))
+    await cn.update_one({"_id": u}, {"$set": {"groups": gs, "active": act}}, upsert=True)
 
 
-async def refresh_cache(group_id):
-    KW_CACHE[group_id] = await db.get_keywords(group_id)
-
-
-async def get_cached_keywords(group_id):
-    if group_id not in KW_CACHE:
-        await refresh_cache(group_id)
-    return KW_CACHE[group_id]
-
-
-async def send_filter(client, message, data):
-    markup = build_markup(data.get("buttons"))
-    text = data.get("text") or None
-    ft, fid = data.get("file_type"), data.get("file_id")
-    kw = dict(chat_id=message.chat.id, reply_to_message_id=message.id, reply_markup=markup)
-
+async def send(c, m, d):
+    mk = M([[B(b["text"], url=b["url"]) for b in r] for r in d["b"]]) if d.get("b") else None
+    ft, kw = d.get("ft"), dict(chat_id=m.chat.id, reply_to_message_id=m.id, reply_markup=mk)
     for _ in range(2):
         try:
-            if not ft:
-                await client.send_message(text=text or "\u200b", disable_web_page_preview=True, **kw)
-            else:
-                send = {
-                    "photo": client.send_photo,
-                    "video": client.send_video,
-                    "animation": client.send_animation,
-                    "document": client.send_document,
-                    "audio": client.send_audio,
-                    "voice": client.send_voice,
-                    "video_note": client.send_video_note,
-                    "sticker": client.send_sticker,
-                }[ft]
-                extra = {} if ft in NO_CAPTION else {"caption": text}
-                await send(**{ft: fid}, **extra, **kw)
-            return
-        except FloodWait as e:
-            await asyncio.sleep(e.value)
-        except Exception as e:
-            log.warning("could not send filter in %s: %s", message.chat.id, e)
-            return
+            if ft:
+                extra = {} if ft in ("sticker", "video_note") else {"caption": d["t"]}
+                return await getattr(c, "send_" + ft)(**{ft: d["fid"]}, **extra, **kw)
+            return await c.send_message(text=d["t"] or ".", disable_web_page_preview=True, **kw)
+        except FloodWait as e: await asyncio.sleep(e.value)
+        except Exception as e: return log.warning("send failed %s: %s", m.chat.id, e)
 
 
-async def group_title(client, gid):
-    try:
-        return (await client.get_chat(gid)).title or str(gid)
-    except Exception:
-        return str(gid)
+# ---------------------------------------------------------------- basics
+@app.on_message(filters.command(["start", "help"]))
+async def start(c, m):
+    await c.send_chat_action(m.chat.id, ChatAction.TYPING)
+    await m.reply_text(HELP)
 
 
-@app.on_message(filters.command("start") & filters.private)
-async def start_cmd(client, message):
-    await message.reply_text(HELP_TEXT, disable_web_page_preview=True)
-
-
-@app.on_message(filters.command("help"))
-async def help_cmd(client, message):
-    await message.reply_text(HELP_TEXT, disable_web_page_preview=True)
-
-
+# --------------------------------------------------------------- filters
 @app.on_message(filters.command(["filter", "add"]))
-async def add_filter_cmd(client, message):
-    gid = await get_target(client, message)
-    if gid is None:
-        return
-
-    raw = message.text.html if message.text else ""
-    parts = raw.split(None, 1)
-    keyword, rest = split_keyword(parts[1] if len(parts) > 1 else "")
-    if not keyword:
-        return await message.reply_text(
-            "Usage:\n<code>/filter keyword</code> (reply to a message/media)\n"
-            "<code>/filter keyword text [Button](buttonurl:https://example.com)</code>"
-        )
-    if len(keyword) > 64:
-        return await message.reply_text("Keyword is too long (max 64 characters).")
-
-    rest_text, rest_btns = parse_buttons(rest)
-    reply = message.reply_to_message
-    file_type = file_id = None
-
-    if reply:
-        file_type, file_id = extract_media(reply)
-        body = reply.text or reply.caption
-        body_text, body_btns = parse_buttons(body.html if body else "")
-        text = body_text or rest_text
-        buttons = body_btns + rest_btns
-    else:
-        text, buttons = rest_text, rest_btns
-
-    if not text and not file_id:
-        return await message.reply_text("Give me some text or reply to a message/media to save as the filter.")
-    if file_id and file_type not in NO_CAPTION and len(text) > 1024:
-        return await message.reply_text("Captions are limited to 1024 characters. Shorten the text.")
-
-    await db.save_filter(gid, keyword, text, file_type, file_id, buttons)
-    await refresh_cache(gid)
-
-    label = f"<b>{await group_title(client, gid)}</b>" if message.chat.type == ChatType.PRIVATE else "this group"
-    await message.reply_text(f"Filter <code>{keyword}</code> saved in {label}.")
+async def add(c, m):
+    g = await target(c, m)
+    if g is None: return
+    p = (m.text.html if m.text else "").split(None, 1)
+    k, rest = kwsplit(p[1] if len(p) > 1 else "")
+    if not k or len(k) > 64: return await m.reply_text("Usage: /filter word (reply to msg/media) or /filter word text")
+    t, b = parse(rest)
+    r, ft, fid = m.reply_to_message, None, None
+    if r:
+        for x in MEDIA:
+            if getattr(r, x, None): ft, fid = x, getattr(r, x).file_id; break
+        body = r.text or r.caption
+        bt, bb = parse(body.html if body else "")
+        t, b = bt or t, bb + b
+    if not t and not fid: return await m.reply_text("Reply to a message/media or add some text.")
+    if fid and len(t) > 1024: return await m.reply_text("Caption max is 1024 characters.")
+    await fl.update_one({"g": g, "k": k}, {"$set": {"t": t, "ft": ft, "fid": fid, "b": b}}, upsert=True)
+    KW.pop(g, None)
+    await m.reply_text(f"Filter <code>{k}</code> saved.")
 
 
-@app.on_message(filters.command(["filters", "viewfilters"]))
-async def list_filters_cmd(client, message):
-    gid = await get_target(client, message)
-    if gid is None:
-        return
-    kws = sorted(await db.get_keywords(gid))
-    if not kws:
-        return await message.reply_text("No filters here yet. Add one with /filter.")
-    body = "\n".join(f"• <code>{k}</code>" for k in kws)
-    title = await group_title(client, gid)
-    await message.reply_text(f"<b>Filters in {title}</b> ({len(kws)})\n\n{body}")
+@app.on_message(filters.command("filters"))
+async def lst(c, m):
+    g = await target(c, m)
+    if g is None: return
+    ks = sorted([d["k"] async for d in fl.find({"g": g}, {"k": 1})])
+    await m.reply_text(f"<b>Filters in {await title(c, g)}</b> ({len(ks)})\n\n" + "\n".join(f"• <code>{k}</code>" for k in ks) if ks else "No filters yet.")
 
 
 @app.on_message(filters.command(["del", "stop"]))
-async def del_filter_cmd(client, message):
-    gid = await get_target(client, message)
-    if gid is None:
-        return
-    raw = message.text.html if message.text else ""
-    parts = raw.split(None, 1)
-    keyword, _ = split_keyword(parts[1] if len(parts) > 1 else "")
-    if not keyword:
-        return await message.reply_text("Usage: <code>/del keyword</code>")
-    if await db.delete_filter(gid, keyword):
-        await refresh_cache(gid)
-        await message.reply_text(f"Filter <code>{keyword}</code> deleted.")
-    else:
-        await message.reply_text("No such filter.")
+async def rm(c, m):
+    g = await target(c, m)
+    if g is None: return
+    p = (m.text.html or "").split(None, 1)
+    k, _ = kwsplit(p[1] if len(p) > 1 else "")
+    if not k: return await m.reply_text("Usage: /del word")
+    r = await fl.delete_one({"g": g, "k": k}); KW.pop(g, None)
+    await m.reply_text("Deleted." if r.deleted_count else "No such filter.")
 
 
 @app.on_message(filters.command("delall"))
-async def delall_cmd(client, message):
-    gid = await get_target(client, message, owner_only=True)
-    if gid is None:
-        return
-    kb = InlineKeyboardMarkup(
-        [[InlineKeyboardButton("Yes, delete all", callback_data=f"delall:yes:{gid}"),
-          InlineKeyboardButton("Cancel", callback_data="delall:no:0")]]
-    )
-    await message.reply_text("Delete <b>all</b> filters? This cannot be undone.", reply_markup=kb)
+async def delall(c, m):
+    g = await target(c, m, owner=True)
+    if g is None: return
+    await m.reply_text("Delete <b>all</b> filters?", reply_markup=M([[B("Yes", callback_data=f"da:y:{g}"), B("Cancel", callback_data="da:n:0")]]))
 
 
-@app.on_callback_query(filters.regex(r"^delall:"))
-async def delall_cb(client, query):
-    _, choice, gid = query.data.split(":")
-    if choice != "yes":
-        return await query.message.edit_text("Cancelled.")
-    gid = int(gid)
-    if not await is_admin(client, gid, query.from_user.id, owner_only=True):
-        return await query.answer("Only the group owner can do this.", show_alert=True)
-    n = await db.delete_all_filters(gid)
-    await refresh_cache(gid)
-    await query.message.edit_text(f"Deleted {n} filter(s).")
+@app.on_callback_query(filters.regex(r"^da:"))
+async def delall_cb(c, q):
+    _, a, g = q.data.split(":"); g = int(g)
+    if a != "y": return await q.message.edit_text("Cancelled.")
+    if not await is_adm(c, g, q.from_user.id, True): return await q.answer("Owner only.", show_alert=True)
+    r = await fl.delete_many({"g": g}); KW.pop(g, None)
+    await q.message.edit_text(f"Deleted {r.deleted_count} filter(s).")
 
 
+# ----------------------------------------------------------- connections
 @app.on_message(filters.command("connect"))
-async def connect_cmd(client, message):
-    if not message.from_user:
-        return
-    uid = message.from_user.id
-
-    if message.chat.type in GROUP_TYPES:
-        gid = message.chat.id
+async def connect(c, m):
+    if not m.from_user: return
+    u = m.from_user.id
+    if m.chat.type in GRP: g = m.chat.id
     else:
-        args = message.command[1:]
-        if not args:
-            return await message.reply_text(
-                "Send <code>/connect</code> in your group, or here: <code>/connect -100xxxxxxxxxx</code>"
-            )
         try:
-            gid = int(args[0])
-        except ValueError:
-            return await message.reply_text("Group id must be a number like <code>-1001234567890</code>.")
-        try:
-            await client.get_chat(gid)
-        except Exception:
-            return await message.reply_text("I can't see that group. Add me to it first and check the id.")
-
-    if not await is_admin(client, gid, uid):
-        return await message.reply_text("You must be an admin of that group to connect it.")
-
-    await db.add_connection(uid, gid)
-    title = await group_title(client, gid)
-
-    if message.chat.type in GROUP_TYPES:
-        await message.reply_text("Connected! You can now manage this group's filters from my PM.")
-        try:
-            await client.send_message(uid, f"Connected to <b>{title}</b>. Use /filter, /filters, /del here.")
-        except Exception:
-            pass
-    else:
-        await message.reply_text(f"Connected to <b>{title}</b>.")
+            g = int(m.command[1]); await c.get_chat(g)
+        except Exception: return await m.reply_text("Usage: /connect -100id (I must be in that group)")
+    if not await is_adm(c, g, u): return await m.reply_text("You must be an admin there.")
+    await conn_set(u, g)
+    await m.reply_text(f"Connected to <b>{await title(c, g)}</b>. Manage filters from my PM.")
 
 
 @app.on_message(filters.command("disconnect"))
-async def disconnect_cmd(client, message):
-    if not message.from_user:
-        return
-    uid = message.from_user.id
-    if message.chat.type in GROUP_TYPES:
-        gid = message.chat.id
-    else:
-        gid = await db.get_active(uid)
-    if not gid:
-        return await message.reply_text("You're not connected to any group.")
-    await db.remove_connection(uid, gid)
-    await message.reply_text("Disconnected.")
+async def disconnect(c, m):
+    if not m.from_user: return
+    g = m.chat.id if m.chat.type in GRP else (await cn.find_one({"_id": m.from_user.id}) or {}).get("active")
+    if g: await conn_set(m.from_user.id, g, False)
+    await m.reply_text("Disconnected." if g else "Not connected.")
 
 
-async def connections_markup(client, uid):
-    groups, active = await db.get_connections(uid)
-    if not groups:
-        return None, None
-    rows = []
-    for gid in groups:
-        title = await group_title(client, gid)
-        mark = "✅ " if gid == active else ""
-        rows.append([
-            InlineKeyboardButton(f"{mark}{title}", callback_data=f"conn:sel:{gid}"),
-            InlineKeyboardButton("🗑", callback_data=f"conn:dis:{gid}"),
-        ])
-    return InlineKeyboardMarkup(rows), active
+async def conn_kb(c, u):
+    d = await cn.find_one({"_id": u}) or {}
+    rows = [[B(("✅ " if g == d.get("active") else "") + await title(c, g), callback_data=f"cn:s:{g}"), B("🗑", callback_data=f"cn:d:{g}")] for g in d.get("groups", [])]
+    return M(rows) if rows else None
 
 
 @app.on_message(filters.command("connections") & filters.private)
-async def connections_cmd(client, message):
-    markup, _ = await connections_markup(client, message.from_user.id)
-    if not markup:
-        return await message.reply_text("No connected groups. Use /connect in your group first.")
-    await message.reply_text("Your groups (tap to select, 🗑 to remove):", reply_markup=markup)
+async def conns(c, m):
+    kb = await conn_kb(c, m.from_user.id)
+    await m.reply_text("Your groups (tap to select, 🗑 to remove):" if kb else "No connections.", reply_markup=kb)
 
 
-@app.on_callback_query(filters.regex(r"^conn:"))
-async def connections_cb(client, query):
-    _, action, gid = query.data.split(":")
-    gid, uid = int(gid), query.from_user.id
-    if action == "sel":
-        await db.set_active(uid, gid)
-        await query.answer("Selected")
-    else:
-        await db.remove_connection(uid, gid)
-        await query.answer("Removed")
-    markup, _ = await connections_markup(client, uid)
-    if markup:
-        await query.message.edit_reply_markup(markup)
-    else:
-        await query.message.edit_text("No connected groups left.")
+@app.on_callback_query(filters.regex(r"^cn:"))
+async def conn_cb(c, q):
+    _, a, g = q.data.split(":"); g, u = int(g), q.from_user.id
+    if a == "s": await cn.update_one({"_id": u}, {"$set": {"active": g}})
+    else: await conn_set(u, g, False)
+    await q.answer("Done")
+    kb = await conn_kb(c, u)
+    await (q.message.edit_reply_markup(kb) if kb else q.message.edit_text("No connections left."))
 
 
+# -------------------------------------------------------------- antilink
+@app.on_message(filters.command("antilink") & filters.group)
+async def antilink_cmd(c, m):
+    if not m.from_user or not await is_adm(c, m.chat.id, m.from_user.id): return
+    a = (m.command[1:] or [""])[0].lower()
+    if a not in ("on", "off"): return await m.reply_text(f"Usage: /antilink on|off (now {'on' if m.chat.id in LINK else 'off'})")
+    (LINK.add if a == "on" else LINK.discard)(m.chat.id)
+    await st.update_one({"_id": m.chat.id}, {"$set": {"al": a == "on"}}, upsert=True)
+    await m.reply_text(f"Anti-link <b>{a}</b>. I need the 'delete messages' right.")
+
+
+async def warn(c, g, who):
+    w = await c.send_message(g, f"{who} links are not allowed here.")
+    await asyncio.sleep(5)
+    await w.delete()
+
+
+@app.on_message(filters.group & ~filters.service, group=5)
+async def antilink(c, m):
+    g = m.chat.id
+    if g not in LINK or not m.from_user: return
+    if not any(e.type in (E.URL, E.TEXT_LINK) for e in (m.entities or []) + (m.caption_entities or [])): return
+    if await is_adm(c, g, m.from_user.id): return
+    try: await m.delete()
+    except Exception: return
+    asyncio.create_task(warn(c, g, m.from_user.mention))
+    m.stop_propagation()
+
+
+# --------------------------------------------------------- keyword trigger
 @app.on_message(filters.group & filters.text & ~filters.regex(r"^[/!]"), group=10)
-async def keyword_listener(client, message):
-    gid = message.chat.id
-    keywords = await get_cached_keywords(gid)
-    if not keywords:
-        return
-    for kw in keywords:
-        if keyword_matches(kw, message.text):
-            data = await db.get_filter(gid, kw)
-            if data:
-                await send_filter(client, message, data)
+async def listen(c, m):
+    g = m.chat.id
+    if g not in SEEN:
+        SEEN.add(g); await ch.update_one({"_id": g}, {"$set": {"type": "group"}}, upsert=True)
+    if g not in KW: KW[g] = sorted([d["k"] async for d in fl.find({"g": g}, {"k": 1})], key=len, reverse=True)
+    for k in KW[g]:
+        if re.search(rf"(?<!\w){re.escape(k)}(?!\w)", m.text, re.I):
+            d = await fl.find_one({"g": g, "k": k})
+            if d:
+                await c.send_chat_action(g, ChatAction.TYPING)  # "typing..." animation
+                await asyncio.sleep(1)
+                await send(c, m, d)
             return
 
 
+# ------------------------------------------------ track groups & channels
+@app.on_chat_member_updated()
+async def tracker(c, u):
+    n, o = u.new_chat_member, u.old_chat_member
+    x = n or o
+    if u.chat.type == T.PRIVATE or not x or not x.user.is_self: return
+    if n and n.status not in (S.LEFT, S.BANNED):
+        await ch.update_one({"_id": u.chat.id}, {"$set": {"type": "channel" if u.chat.type == T.CHANNEL else "group"}}, upsert=True)
+    else:
+        await ch.delete_one({"_id": u.chat.id}); SEEN.discard(u.chat.id)
+
+
+# ------------------------------------------------- owner / admins / broadcast
+async def bsend(msg, cid):
+    for _ in range(2):
+        try: await msg.copy(cid); return True
+        except FloodWait as e: await asyncio.sleep(e.value + 1)
+        except (ChannelPrivate, ChatWriteForbidden, UserNotParticipant): await ch.delete_one({"_id": cid}); return False
+        except Exception: return False
+    return False
+
+
+@app.on_message(filters.command("broadcast"))
+async def broadcast(c, m):
+    if not (m.from_user and sudo(m.from_user.id)): return
+    if not m.reply_to_message: return await m.reply_text("Reply to the message you want to broadcast with /broadcast")
+    ids = [d["_id"] async for d in ch.find()]
+    s, ok = await m.reply_text(f"Broadcasting to {len(ids)} chats..."), 0
+    for i in ids:
+        ok += await bsend(m.reply_to_message, i)
+        await asyncio.sleep(0.3)
+    await s.edit_text(f"Broadcast done: ✅ {ok} sent, ❌ {len(ids) - ok} failed.")
+
+
+@app.on_message(filters.command("stats"))
+async def stats(c, m):
+    if not (m.from_user and sudo(m.from_user.id)): return
+    g, h = await ch.count_documents({"type": "group"}), await ch.count_documents({"type": "channel"})
+    await m.reply_text(f"Groups: {g}\nChannels: {h}\nFilters: {await fl.count_documents({})}\nAdmins: {len(ADMINS)}")
+
+
+@app.on_message(filters.command(["addadmin", "rmadmin"]))
+async def admin_cmd(c, m):
+    if not m.from_user or m.from_user.id != OWNER: return
+    r = m.reply_to_message
+    try: u = r.from_user.id if r and r.from_user else int(m.command[1])
+    except Exception: return await m.reply_text("Usage: /addadmin user_id (or reply to a user)")
+    add = m.command[0] == "addadmin"
+    if add: await ad.update_one({"_id": u}, {"$set": {"a": 1}}, upsert=True); ADMINS.add(u)
+    else: await ad.delete_one({"_id": u}); ADMINS.discard(u)
+    await m.reply_text(f"{'Added' if add else 'Removed'} admin <code>{u}</code>")
+
+
+@app.on_message(filters.command("admins"))
+async def admins(c, m):
+    if m.from_user and sudo(m.from_user.id):
+        await m.reply_text(f"Owner: <code>{OWNER}</code>\nAdmins: " + (", ".join(f"<code>{a}</code>" for a in ADMINS) or "none"))
+
+
+# ------------------------------------------------------ render keep-alive + main
+async def web_start():
+    a = web.Application()
+    for p in ("/", "/health"): a.router.add_get(p, lambda r: web.Response(text="ok"))
+    r = web.AppRunner(a); await r.setup()
+    await web.TCPSite(r, "0.0.0.0", int(env("PORT", 10000))).start()
+
+
+async def ping():
+    u = env("RENDER_EXTERNAL_URL")
+    if not u: return
+    async with ClientSession(timeout=ClientTimeout(total=20)) as s:
+        while True:
+            await asyncio.sleep(600)
+            try:
+                async with s.get(u): pass
+            except Exception: pass
+
+
 async def main():
-    runner = await start_web()
-    ping_task = asyncio.create_task(ping_forever())
-    await db.init_db()
-    await app.start()
-    me = await app.get_me()
-    log.info("Started as @%s", me.username)
-    await idle()
-    ping_task.cancel()
-    await app.stop()
-    await runner.cleanup()
+    await web_start(); asyncio.create_task(ping())
+    await fl.create_index([("g", 1), ("k", 1)], unique=True)
+    ADMINS.update([d["_id"] async for d in ad.find()]); LINK.update([d["_id"] async for d in st.find({"al": True})])
+    await app.start(); log.info("started @%s", (await app.get_me()).username)
+    await idle(); await app.stop()
 
 
 if __name__ == "__main__":
