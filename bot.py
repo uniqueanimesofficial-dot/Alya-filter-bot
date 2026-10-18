@@ -13,6 +13,7 @@ from pyrogram.types import (
 
 import database as db
 from config import API_HASH, API_ID, BOT_TOKEN
+from keep_alive import ping_forever, start_web
 from utils import keyword_matches, parse_buttons, split_keyword
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -24,14 +25,13 @@ app = Client(
     api_hash=API_HASH,
     bot_token=BOT_TOKEN,
     parse_mode=ParseMode.HTML,
+    in_memory=True,
 )
 
 GROUP_TYPES = (ChatType.GROUP, ChatType.SUPERGROUP)
 MEDIA_TYPES = ("photo", "video", "animation", "document", "audio", "voice", "video_note", "sticker")
 NO_CAPTION = ("sticker", "video_note")
-
-# group_id -> keywords sorted longest first (invalidated whenever filters change)
-KW_CACHE: dict[int, list[str]] = {}
+KW_CACHE = {}
 
 HELP_TEXT = """<b>Filter Bot</b>
 
@@ -43,23 +43,20 @@ Save text / media filters with inline buttons. When someone sends the keyword in
 • <code>/filter "multi word keyword" ...</code> - keyword with spaces
 • <code>/filters</code> - list filters
 • <code>/del keyword</code> - delete a filter
-• <code>/delall</code> - delete all filters (group owner only)
+• <code>/delall</code> - delete all (group owner only)
 
-<b>Buttons</b> (put in the text/caption or after the keyword)
+<b>Buttons</b>
 <code>[Google](buttonurl:https://google.com)</code>
-<code>[One](buttonurl:https://a.com)</code> + <code>[Two](buttonurl:https://b.com:same)</code> -> same row
+<code>[Two](buttonurl:https://b.com:same)</code> -> same row
 
 <b>Connect</b>
 • Send <code>/connect</code> in your group, then manage filters from my PM
-• or in PM: <code>/connect -100xxxxxxxxxx</code> (group id)
+• or in PM: <code>/connect -100xxxxxxxxxx</code>
 • <code>/connections</code> - switch / remove groups
-• <code>/disconnect</code> - disconnect
-
-Text supports HTML formatting (bold, italic, links, spoilers) because it's copied from your message."""
+• <code>/disconnect</code> - disconnect"""
 
 
-# ---------------------------------------------------------------- helpers
-async def is_admin(client: Client, chat_id: int, user_id: int, owner_only: bool = False) -> bool:
+async def is_admin(client, chat_id, user_id, owner_only=False):
     try:
         member = await client.get_chat_member(chat_id, user_id)
     except Exception:
@@ -68,8 +65,7 @@ async def is_admin(client: Client, chat_id: int, user_id: int, owner_only: bool 
     return member.status in allowed
 
 
-async def get_target(client: Client, message: Message, owner_only: bool = False):
-    """Return the group id the command should act on, or None (after replying with why)."""
+async def get_target(client, message, owner_only=False):
     if not message.from_user:
         return None
     uid = message.from_user.id
@@ -93,7 +89,7 @@ async def get_target(client: Client, message: Message, owner_only: bool = False)
     return gid
 
 
-def extract_media(msg: Message):
+def extract_media(msg):
     for t in MEDIA_TYPES:
         m = getattr(msg, t, None)
         if m:
@@ -107,17 +103,17 @@ def build_markup(rows):
     return InlineKeyboardMarkup([[InlineKeyboardButton(b["text"], url=b["url"]) for b in row] for row in rows])
 
 
-async def refresh_cache(group_id: int):
+async def refresh_cache(group_id):
     KW_CACHE[group_id] = await db.get_keywords(group_id)
 
 
-async def get_cached_keywords(group_id: int):
+async def get_cached_keywords(group_id):
     if group_id not in KW_CACHE:
         await refresh_cache(group_id)
     return KW_CACHE[group_id]
 
 
-async def send_filter(client: Client, message: Message, data: dict):
+async def send_filter(client, message, data):
     markup = build_markup(data.get("buttons"))
     text = data.get("text") or None
     ft, fid = data.get("file_type"), data.get("file_id")
@@ -126,7 +122,7 @@ async def send_filter(client: Client, message: Message, data: dict):
     for _ in range(2):
         try:
             if not ft:
-                await client.send_message(text=text or "​", disable_web_page_preview=True, **kw)
+                await client.send_message(text=text or "\u200b", disable_web_page_preview=True, **kw)
             else:
                 send = {
                     "photo": client.send_photo,
@@ -148,26 +144,25 @@ async def send_filter(client: Client, message: Message, data: dict):
             return
 
 
-async def group_title(client: Client, gid: int) -> str:
+async def group_title(client, gid):
     try:
         return (await client.get_chat(gid)).title or str(gid)
     except Exception:
         return str(gid)
 
 
-# --------------------------------------------------------------- commands
 @app.on_message(filters.command("start") & filters.private)
-async def start_cmd(client: Client, message: Message):
+async def start_cmd(client, message):
     await message.reply_text(HELP_TEXT, disable_web_page_preview=True)
 
 
 @app.on_message(filters.command("help"))
-async def help_cmd(client: Client, message: Message):
+async def help_cmd(client, message):
     await message.reply_text(HELP_TEXT, disable_web_page_preview=True)
 
 
 @app.on_message(filters.command(["filter", "add"]))
-async def add_filter_cmd(client: Client, message: Message):
+async def add_filter_cmd(client, message):
     gid = await get_target(client, message)
     if gid is None:
         return
@@ -209,7 +204,7 @@ async def add_filter_cmd(client: Client, message: Message):
 
 
 @app.on_message(filters.command(["filters", "viewfilters"]))
-async def list_filters_cmd(client: Client, message: Message):
+async def list_filters_cmd(client, message):
     gid = await get_target(client, message)
     if gid is None:
         return
@@ -222,7 +217,7 @@ async def list_filters_cmd(client: Client, message: Message):
 
 
 @app.on_message(filters.command(["del", "stop"]))
-async def del_filter_cmd(client: Client, message: Message):
+async def del_filter_cmd(client, message):
     gid = await get_target(client, message)
     if gid is None:
         return
@@ -239,7 +234,7 @@ async def del_filter_cmd(client: Client, message: Message):
 
 
 @app.on_message(filters.command("delall"))
-async def delall_cmd(client: Client, message: Message):
+async def delall_cmd(client, message):
     gid = await get_target(client, message, owner_only=True)
     if gid is None:
         return
@@ -251,7 +246,7 @@ async def delall_cmd(client: Client, message: Message):
 
 
 @app.on_callback_query(filters.regex(r"^delall:"))
-async def delall_cb(client: Client, query: CallbackQuery):
+async def delall_cb(client, query):
     _, choice, gid = query.data.split(":")
     if choice != "yes":
         return await query.message.edit_text("Cancelled.")
@@ -263,9 +258,8 @@ async def delall_cb(client: Client, query: CallbackQuery):
     await query.message.edit_text(f"Deleted {n} filter(s).")
 
 
-# ------------------------------------------------------------ connections
 @app.on_message(filters.command("connect"))
-async def connect_cmd(client: Client, message: Message):
+async def connect_cmd(client, message):
     if not message.from_user:
         return
     uid = message.from_user.id
@@ -298,13 +292,13 @@ async def connect_cmd(client: Client, message: Message):
         try:
             await client.send_message(uid, f"Connected to <b>{title}</b>. Use /filter, /filters, /del here.")
         except Exception:
-            pass  # user hasn't started the bot yet
+            pass
     else:
         await message.reply_text(f"Connected to <b>{title}</b>.")
 
 
 @app.on_message(filters.command("disconnect"))
-async def disconnect_cmd(client: Client, message: Message):
+async def disconnect_cmd(client, message):
     if not message.from_user:
         return
     uid = message.from_user.id
@@ -318,7 +312,7 @@ async def disconnect_cmd(client: Client, message: Message):
     await message.reply_text("Disconnected.")
 
 
-async def connections_markup(client: Client, uid: int):
+async def connections_markup(client, uid):
     groups, active = await db.get_connections(uid)
     if not groups:
         return None, None
@@ -334,7 +328,7 @@ async def connections_markup(client: Client, uid: int):
 
 
 @app.on_message(filters.command("connections") & filters.private)
-async def connections_cmd(client: Client, message: Message):
+async def connections_cmd(client, message):
     markup, _ = await connections_markup(client, message.from_user.id)
     if not markup:
         return await message.reply_text("No connected groups. Use /connect in your group first.")
@@ -342,7 +336,7 @@ async def connections_cmd(client: Client, message: Message):
 
 
 @app.on_callback_query(filters.regex(r"^conn:"))
-async def connections_cb(client: Client, query: CallbackQuery):
+async def connections_cb(client, query):
     _, action, gid = query.data.split(":")
     gid, uid = int(gid), query.from_user.id
     if action == "sel":
@@ -358,9 +352,8 @@ async def connections_cb(client: Client, query: CallbackQuery):
         await query.message.edit_text("No connected groups left.")
 
 
-# --------------------------------------------------------- keyword trigger
 @app.on_message(filters.group & filters.text & ~filters.regex(r"^[/!]"), group=10)
-async def keyword_listener(client: Client, message: Message):
+async def keyword_listener(client, message):
     gid = message.chat.id
     keywords = await get_cached_keywords(gid)
     if not keywords:
@@ -373,14 +366,17 @@ async def keyword_listener(client: Client, message: Message):
             return
 
 
-# -------------------------------------------------------------------- main
 async def main():
+    runner = await start_web()
+    ping_task = asyncio.create_task(ping_forever())
     await db.init_db()
     await app.start()
     me = await app.get_me()
     log.info("Started as @%s", me.username)
     await idle()
+    ping_task.cancel()
     await app.stop()
+    await runner.cleanup()
 
 
 if __name__ == "__main__":
