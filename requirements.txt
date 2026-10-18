@@ -2,3 +2,4 @@ pyrogram==2.0.106
 tgcrypto
 motor==3.6.0
 python-dotenv
+aiohttp
