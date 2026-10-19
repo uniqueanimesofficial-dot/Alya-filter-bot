@@ -1,25 +1,27 @@
-import asyncio, hashlib, html, logging, os, random, re, time
+import asyncio, hashlib, html, logging, random, re, time
 from collections import deque
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 asyncio.set_event_loop(asyncio.new_event_loop())
 from aiohttp import ClientSession, ClientTimeout, web
-from dotenv import load_dotenv
 from motor.motor_asyncio import AsyncIOMotorClient
 from pyrogram import Client, filters, idle
 from pyrogram.enums import ChatAction, ChatMembersFilter, ChatMemberStatus as S, ChatType as T, MessageEntityType as E, ParseMode
 from pymongo import ReturnDocument
 from pyrogram.types import ChatPermissions, InlineKeyboardButton as B, InlineKeyboardMarkup as M
 
-load_dotenv(); env = os.environ.get
-API_ID, API_HASH, TOKEN, MONGO = int(env("API_ID", 0)), env("API_HASH"), env("BOT_TOKEN"), env("MONGO_URI")
-OWNER = int(env("OWNER_ID", 0))
-assert API_ID and API_HASH and TOKEN and MONGO and OWNER, "set API_ID, API_HASH, BOT_TOKEN, MONGO_URI, OWNER_ID"
+# Import all settings from config.py
+from config import (
+    API_ID, API_HASH, BOT_TOKEN, MONGO_URI, DB_NAME, OWNER_ID as OWNER,
+    BOT_NAME, MAINTAINER, MAINTAINER_URL, START_IMGS, LOAD_EMOJIS,
+    BTN_COLOR, DEFAULT_BTN_COLOR, PREMIUM_EMOJIS, HELP_TEXT, SC
+)
+
 logging.basicConfig(level=logging.INFO); log = logging.getLogger("fb")
 
-db = AsyncIOMotorClient(MONGO)[env("DB_NAME", "FilterBot")]
+db = AsyncIOMotorClient(MONGO_URI)[DB_NAME]
 fl, cn, ch, ad, st, wc, wn = db.filters, db.connections, db.chats, db.admins, db.settings, db.welcome, db.warns
-app = Client("fb", api_id=API_ID, api_hash=API_HASH, bot_token=TOKEN, parse_mode=ParseMode.HTML, in_memory=True)
+app = Client("fb", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN, parse_mode=ParseMode.HTML, in_memory=True)
 
 GRP = (T.GROUP, T.SUPERGROUP)
 MEDIA = ("photo", "video", "animation", "document", "audio", "voice", "video_note", "sticker")
@@ -28,27 +30,17 @@ BTN, TAG = re.compile(r"\[(.+?)\]\(buttonurl:(.+?)((?::(?:same|red|green|blue))*
 STY = {"red": "danger", "green": "success", "blue": "primary"}
 plain = lambda s: html.unescape(TAG.sub("", s)).strip()
 
-# ---------------------------------------------------- branding & colour config
-BRAND = "ALYA"
-MAINTAINER = "Pʀɨʍɛ ƈօʀɛ"
-MAINTAINER_URL = "https://t.me/PrimeCoreHQ"
-START_IMGS = [
-    "https://files.catbox.moe/sla8rd.jpg",
-    "https://files.catbox.moe/9tqcsy.jpg",
-    "https://files.catbox.moe/t3c8bc.jpg",
-    "https://files.catbox.moe/xh6fdc.jpg",
-]
-LOAD_EMOJIS = ["⚙️", "🔄", "⏳", "✨"]
-# 🎨 edit your button colours here: "red" | "green" | "blue" | "" (default)
-BTN_COLOR = {"letters": "", "add_group": "green", "commands": "blue", "settings": "blue",
-             "connections": "blue", "about": "blue", "back": "red", "delete": "red", "set": "blue"}
-DEFAULT_BTN_COLOR = ""   # colour for filter/welcome buttons saved without :red/:green/:blue
-
-SC = {"a":"ᴀ","b":"ʙ","c":"ᴄ","d":"ᴅ","e":"ᴇ","f":"ꜰ","g":"ɢ","h":"ʜ","i":"ɪ","j":"ᴊ","k":"ᴋ","l":"ʟ",
-      "m":"ᴍ","n":"ɴ","o":"ᴏ","p":"ᴘ","q":"ǫ","r":"ʀ","s":"ꜱ","t":"ᴛ","u":"ᴜ","v":"ᴠ","w":"ᴡ","x":"x","y":"ʏ","z":"ᴢ"}
+# ---------------------------------------------------- helpers
 def smallcaps(s): return "".join(SC.get(ch, ch) for ch in (s or "").lower())
 def is_url(img): return img.startswith("http")
 def sty(w): return STY.get((w or "").lower()) or None
+
+def pe(name):
+    """Helper to easily use Premium Emojis defined in config.py"""
+    data = PREMIUM_EMOJIS.get(name)
+    if not data: return "✨"
+    eid, fallback = data
+    return f'<tg-emoji emoji-id="{eid}">{fallback}</tg-emoji>'
 
 def greet():
     h = datetime.now().hour
@@ -58,9 +50,9 @@ def greet():
     return "GOOD NIGHT"
 
 def start_txt(u):
-    return (f"HEY {smallcaps(u.first_name or 'FRIEND')} ツ, {greet()} 👋\n\n"
+    return (f"HEY {smallcaps(u.first_name or 'FRIEND')} ツ, {greet()} {pe('wave')}\n\n"
             "I AM THE MOST POWERFUL AUTO FILTER BOT WITH PREMIUM FEATURES, "
-            "JUST ADD ME TO YOUR GROUP AND ENJOY!\n\n"
+            f"JUST ADD ME TO YOUR GROUP AND ENJOY! {pe('fire')}\n\n"
             f'<blockquote>▶ <b>MAINTAINED BY :</b> <a href="{MAINTAINER_URL}">{MAINTAINER}</a> ❞</blockquote>')
 
 # ------------------------------------------- raw Bot API layer (blockquote + colours + previews)
@@ -87,14 +79,14 @@ def raw_kb(rows):
 
 async def raw_post(method, pl):
     async with ClientSession(timeout=ClientTimeout(total=30)) as s:
-        async with s.post(f"https://api.telegram.org/bot{TOKEN}/{method}", json=pl) as r:
+        async with s.post(f"https://api.telegram.org/bot{BOT_TOKEN}/{method}", json=pl) as r:
             j = await r.json()
     if not j.get("ok"): raise RuntimeError(j.get("description"))
     return j["result"]
 
 def _lpo(preview):
     o = {"is_disabled": not preview}
-    if preview: o["show_above_link"] = True   # image appears ABOVE the text
+    if preview: o["show_above_link"] = True
     return o
 
 async def ui_send(c, chat, text, rows=None, reply_id=None, preview=False):
@@ -121,7 +113,7 @@ async def raw_edit_media(chat, mid, photo, caption, rows):
 def start_kb(idx, uname):
     c = BTN_COLOR
     return [
-        [R(ch, cb=f"sb:img:{idx}", s=c["letters"]) for ch in smallcaps(BRAND)],
+        [R(ch, cb=f"sb:img:{idx}", s=c["letters"]) for ch in smallcaps(BOT_NAME)],
         [R("ADD ME TO YOUR GROUP", url=f"https://t.me/{uname}?startgroup=true", s=c["add_group"])],
         [R("COMMANDS", cb="sb:help", s=c["commands"]), R("SETTINGS", cb="sb:set", s=c["settings"])],
         [R("CONNECTIONS", cb="sb:conn", s=c["connections"]), R("ABOUT", cb="sb:about", s=c["about"])],
@@ -139,7 +131,7 @@ async def update_start(q, img, caption, kb):
         if q.message.photo:
             try: await q.message.delete()
             except Exception: pass
-            await ui_send(c=None, chat=chat, text=f'<a href="{img}">\u200b</a>\n{caption}', rows=kb, preview=True) if False else await ui_send(q._client, chat, f'<a href="{img}">\u200b</a>\n{caption}', kb, preview=True)
+            await ui_send(chat, f'<a href="{img}">\u200b</a>\n{caption}', kb, preview=True)
         else:
             await ui_edit(chat, mid, f'<a href="{img}">\u200b</a>\n{caption}', kb, preview=True)
     else:
@@ -201,35 +193,6 @@ def apply_default(rows):
             nr.append(b)
         out.append(nr)
     return out
-
-HELP = """<b>🤖 Filter Bot</b>
-
-<blockquote>
-<b>👥 Admins</b> (group, or PM after /connect)
-• <code>/filter</code> word - reply to a msg/media to save it
-• <code>/filter</code> "two words" text - text filter
-• <code>/filters</code> - list with 🗑 delete buttons
-• <code>/settings</code> - protection panel (anti-link, flood, etc.)
-• <code>/allowlink</code> domain.com - links that anti-link ignores
-• <code>/warn</code> (reply) reason | <code>/unwarn</code> | <code>/warns</code>
-• <code>/setwel</code> - welcome message editor (PM only)
-</blockquote>
-
-<blockquote>
-<b>⚙️ Filter modes &amp; Buttons</b>
-• <code>regex:^hi</code> or <code>contains:price</code> (default = whole word)
-• Reply to a post (media + buttons) with <code>/filter any words</code>
-• Buttons: <code>[Name](buttonurl:https://x.com)</code>
-  Add <code>:same</code> (same row), <code>:red</code> <code>:green</code> <code>:blue</code>
-• <code>/color</code> word red green - set button colours
-</blockquote>
-
-<blockquote>
-<b>👑 Bot Owner / Admins</b>
-• <code>/broadcast</code> (reply) | <code>/stats</code> | <code>/addadmin</code> id | <code>/rmadmin</code> id
-• <code>/info</code> - view user info
-</blockquote>
-"""
 
 def parse(t):
     rows = []
@@ -346,7 +309,7 @@ async def start(c, m):
             await ui_send(c, m.chat.id, start_txt(m.from_user), start_kb(0, c.me.username), reply_id=m.id)
         return
     await think(c, m)
-    await ship(c, m, HELP)
+    await ship(c, m, HELP_TEXT)
 
 async def sb_show(c, q, txt, rows):
     chat = q.message.chat.id
@@ -361,7 +324,7 @@ async def sb_show(c, q, txt, rows):
 @app.on_callback_query(filters.regex(r"^sb:"))
 async def sb_cb(c, q):
     p = q.data.split(":"); a = p[1]; chat = q.message.chat.id
-    if a == "img":  # letter buttons: no animation, instant image swap
+    if a == "img":
         if not START_IMGS: return await q.answer("No images added yet.", show_alert=True)
         cur = int(p[2]) if len(p) > 2 and p[2].lstrip("-").isdigit() else -1
         idx = random.choice([i for i in range(len(START_IMGS)) if i != cur] or [0])
@@ -380,10 +343,10 @@ async def sb_cb(c, q):
         return
     if a == "help":
         await qanim(q); await q.answer()
-        return await sb_show(c, q, HELP, BACK())
+        return await sb_show(c, q, HELP_TEXT, BACK())
     if a == "about":
         await qanim(q); await q.answer()
-        txt = (f"<b>❓ ABOUT {BRAND}</b>\n\n<blockquote>I AM AN AUTO FILTER BOT WITH PREMIUM FEATURES.\n"
+        txt = (f"<b>❓ ABOUT {BOT_NAME}</b>\n\n<blockquote>I AM AN AUTO FILTER BOT WITH PREMIUM FEATURES.\n"
                f"MAINTAINED BY : <a href=\"{MAINTAINER_URL}\">{MAINTAINER}</a></blockquote>")
         return await sb_show(c, q, txt, BACK())
     if a == "set":
@@ -1087,10 +1050,10 @@ async def web_start():
     a = web.Application()
     for p in ("/", "/health"): a.router.add_get(p, lambda r: web.Response(text="ok"))
     r = web.AppRunner(a); await r.setup()
-    await web.TCPSite(r, "0.0.0.0", int(env("PORT", 10000))).start()
+    await web.TCPSite(r, "0.0.0.0", int(os.environ.get("PORT", 10000))).start()
 
 async def ping():
-    u = env("RENDER_EXTERNAL_URL")
+    u = os.environ.get("RENDER_EXTERNAL_URL")
     if not u: return
     async with ClientSession(timeout=ClientTimeout(total=20)) as s:
         while True:
