@@ -1,10 +1,10 @@
-import asyncio, html, logging, os, re
+import asyncio, hashlib, html, logging, os, re
 asyncio.set_event_loop(asyncio.new_event_loop())  # Pyrogram needs a loop at import time (Python 3.12+)
 from aiohttp import ClientSession, ClientTimeout, web
 from dotenv import load_dotenv
 from motor.motor_asyncio import AsyncIOMotorClient
 from pyrogram import Client, filters, idle
-from pyrogram.enums import ChatAction, ChatMemberStatus as S, ChatType as T, MessageEntityType as E, ParseMode
+from pyrogram.enums import ChatAction, ChatMembersFilter, ChatMemberStatus as S, ChatType as T, MessageEntityType as E, ParseMode
 from pyrogram.errors import ChannelPrivate, ChatWriteForbidden, FloodWait, UserNotParticipant
 from pyrogram.types import InlineKeyboardButton as B, InlineKeyboardMarkup as M
 
@@ -20,7 +20,7 @@ app = Client("fb", api_id=API_ID, api_hash=API_HASH, bot_token=TOKEN, parse_mode
 
 GRP = (T.GROUP, T.SUPERGROUP)
 MEDIA = ("photo", "video", "animation", "document", "audio", "voice", "video_note", "sticker")
-KW, LINK, ADMINS, SEEN = {}, set(), set(), set()
+KW, LINK, ADMINS, SEEN = {}, {}, set(), set()  # LINK: group id -> "on" | "all"
 BTN, TAG = re.compile(r"\[(.+?)\]\(buttonurl:(.+?)((?::(?:same|red|green|blue))*)\)"), re.compile(r"<[^>]+>")
 STY = {"red": "danger", "green": "success", "blue": "primary"}  # Telegram button styles
 plain = lambda s: html.unescape(TAG.sub("", s)).strip()
@@ -29,8 +29,8 @@ HELP = """<b>Filter Bot</b>
 <b>Admins</b> (group, or PM after /connect)
 /filter word - reply to a msg/media to save it
 /filter "two words" text - text filter
-/filters - list | /del word - delete | /delall - delete all (owner)
-/antilink on|off - delete links from members
+/filters - list with 🗑 delete buttons | /del - same | /del full keyword - delete | /delall - delete all (owner)
+/antilink - On/Off buttons (deletes links from members)
 Reply to a post (media + buttons) with <code>/filter any words</code> - media, caption and buttons are copied
 Buttons: <code>[Name](buttonurl:https://x.com)</code> - add after the url: <code>:same</code> (same row), <code>:red</code> <code>:green</code> <code>:blue</code> (colour)
 /color word red green - set button colours of a saved filter (Telegram can't pass colours when copying)
@@ -179,12 +179,47 @@ async def add(c, m):
     await m.reply_text(f"Filter <code>{k}</code> saved.")
 
 
+def kh(k): return hashlib.md5(k.encode()).hexdigest()[:10]  # short id for callback_data (64 byte limit)
+
+
+async def fl_kb(g, page=0):
+    ks = sorted([d["k"] async for d in fl.find({"g": g}, {"k": 1})])
+    pages = max(1, -(-len(ks) // 8)); page = max(0, min(page, pages - 1))
+    rows = [[B(k[:32], callback_data=f"fv:{g}:{kh(k)}:{page}"), B("🗑", callback_data=f"fd:{g}:{kh(k)}:{page}")] for k in ks[page * 8:page * 8 + 8]]
+    if pages > 1:
+        rows.append([B("◀", callback_data=f"fp:{g}:{page - 1}"), B(f"{page + 1}/{pages}", callback_data=f"fp:{g}:{page}"), B("▶", callback_data=f"fp:{g}:{page + 1}")])
+    return (M(rows) if rows else None), len(ks)
+
+
+async def panel(c, m, g):
+    kb, n = await fl_kb(g)
+    if not kb: return await m.reply_text("No filters yet. Reply to a post with /filter keyword to add one.")
+    await m.reply_text(f"<b>Filters in {await title(c, g)}</b> ({n})\nTap 🗑 to delete a filter.", reply_markup=kb)
+
+
 @app.on_message(filters.command("filters"))
 async def lst(c, m):
     g = await target(c, m)
     if g is None: return
-    ks = sorted([d["k"] async for d in fl.find({"g": g}, {"k": 1})])
-    await m.reply_text(f"<b>Filters in {await title(c, g)}</b> ({len(ks)})\n\n" + "\n".join(f"• <code>{k}</code>" for k in ks) if ks else "No filters yet.")
+    await panel(c, m, g)
+
+
+@app.on_callback_query(filters.regex(r"^f[dpv]:"))
+async def fl_cb(c, q):
+    p = q.data.split(":"); a, g = p[0], int(p[1])
+    cd = await cn.find_one({"_id": q.from_user.id}) or {}
+    trust = q.message.chat.type == T.PRIVATE and g in cd.get("groups", [])
+    if not await is_adm(c, g, q.from_user.id, trust=trust): return await q.answer("Admins only.", show_alert=True)
+    page = int(p[2]) if a == "fp" else int(p[3])
+    if a == "fp": await q.answer()
+    else:
+        k = next((x for x in [d["k"] async for d in fl.find({"g": g}, {"k": 1})] if kh(x) == p[2]), None)
+        if a == "fv": return await q.answer(k or "Already deleted", show_alert=True)
+        if k: await fl.delete_one({"g": g, "k": k}); KW.pop(g, None)
+        await q.answer("Deleted 🗑" if k else "Already deleted")
+    kb, n = await fl_kb(g, page)
+    try: await q.message.edit_text(f"<b>Filters in {await title(c, g)}</b> ({n})\nTap 🗑 to delete a filter." if kb else "No filters left.", reply_markup=kb)
+    except Exception: pass
 
 
 @app.on_message(filters.command(["del", "stop"]))
@@ -192,10 +227,12 @@ async def rm(c, m):
     g = await target(c, m)
     if g is None: return
     p = (m.text.html or "").split(None, 1)
-    k, _ = kwsplit(p[1] if len(p) > 1 else "")
-    if not k: return await m.reply_text("Usage: /del word")
+    arg = p[1] if len(p) > 1 else ""
+    if not arg.strip(): return await panel(c, m, g)  # no keyword -> tap-to-delete list
+    k, _ = kwsplit(arg)
+    if not arg.lstrip().startswith(('"', "&quot;", "“")): k = plain(arg).lower()  # whole text is the keyword
     r = await fl.delete_one({"g": g, "k": k}); KW.pop(g, None)
-    await m.reply_text("Deleted." if r.deleted_count else "No such filter.")
+    await m.reply_text(f"Filter <code>{k}</code> deleted." if r.deleted_count else "No such filter. Send /filters and tap 🗑 instead.")
 
 
 @app.on_message(filters.command("delall"))
@@ -286,31 +323,102 @@ async def conn_cb(c, q):
 
 
 # -------------------------------------------------------------- antilink
-@app.on_message(filters.command("antilink") & filters.group)
+AL_TXT = ("<b>Anti-link</b> - deletes messages with links from members.\n"
+          "• <b>On</b>: admins are allowed to post links\n"
+          "• <b>On + admins</b>: also deletes admin/owner links (use this to test with your own account)\n"
+          "The link is deleted instantly, a warning appears and removes itself, and the group owner gets a PM "
+          "with the user's info + the link (the owner must have started this bot).\n"
+          "I must be an admin with the <i>Delete messages</i> right.")
+
+
+def al_kb(g):
+    cur = LINK.get(g, "off")
+    mk = lambda lb, key: B(("✅ " if cur == key else "") + lb, callback_data=f"al:{g}:{key}")
+    return M([[mk("On", "on"), mk("Off", "off")], [mk("On + admins (test)", "all")]])
+
+
+async def al_set(g, a):
+    if a == "off": LINK.pop(g, None)
+    else: LINK[g] = a
+    await st.update_one({"_id": g}, {"$set": {"al": a}}, upsert=True)
+
+
+@app.on_message(filters.command("antilink"))
 async def antilink_cmd(c, m):
-    if not m.from_user or not await is_adm(c, m.chat.id, m.from_user.id): return
+    g = await target(c, m)  # works in the group, or in PM for the connected group
+    if g is None: return
     a = (m.command[1:] or [""])[0].lower()
-    if a not in ("on", "off"): return await m.reply_text(f"Usage: /antilink on|off (now {'on' if m.chat.id in LINK else 'off'})")
-    (LINK.add if a == "on" else LINK.discard)(m.chat.id)
-    await st.update_one({"_id": m.chat.id}, {"$set": {"al": a == "on"}}, upsert=True)
-    await m.reply_text(f"Anti-link <b>{a}</b>. I need the 'delete messages' right.")
+    if a in ("on", "off", "all"): await al_set(g, a)
+    await m.reply_text(AL_TXT, reply_markup=al_kb(g))
+
+
+@app.on_callback_query(filters.regex(r"^al:"))
+async def al_cb(c, q):
+    _, g, a = q.data.split(":"); g = int(g)
+    cd = await cn.find_one({"_id": q.from_user.id}) or {}
+    trust = q.message.chat.type == T.PRIVATE and g in cd.get("groups", [])
+    if not await is_adm(c, g, q.from_user.id, trust=trust): return await q.answer("Admins only.", show_alert=True)
+    await al_set(g, a); await q.answer("Anti-link: " + a)
+    try: await q.message.edit_reply_markup(al_kb(g))
+    except Exception: pass
 
 
 async def warn(c, g, who):
-    w = await c.send_message(g, f"{who} links are not allowed here.")
-    await asyncio.sleep(5)
-    await w.delete()
+    w = await c.send_message(g, f"⚠️ {who}, links are not allowed here. Your message was deleted.")
+    await asyncio.sleep(6)
+    try: await w.delete()  # the warning removes itself
+    except Exception: pass
+
+
+OWN = {}  # group id -> owner user id
+
+
+async def gc_owner(c, g):
+    if g in OWN: return OWN[g]
+    try:
+        async for mem in c.get_chat_members(g, filter=ChatMembersFilter.ADMINISTRATORS):
+            if mem.status == S.OWNER: OWN[g] = mem.user.id; return OWN[g]
+    except Exception as e: log.warning("cannot find the owner of %s: %s", g, e)
+
+
+def links_of(m):
+    txt, out = (m.text or m.caption or ""), []
+    for e in (m.entities or []) + (m.caption_entities or []):
+        try:
+            if e.type == E.TEXT_LINK and e.url: out.append(e.url)
+            elif e.type == E.URL: out.append(txt[e.offset:e.offset + e.length])
+        except Exception: pass
+    return list(dict.fromkeys(out)) or re.findall(r"(?:https?://|t\.me/|www\.)\S+", txt)
+
+
+async def report(c, g, m):
+    """PM the group owner: who sent which link (needs the owner to have started the bot)."""
+    u = m.from_user
+    links = "\n".join(f"• <code>{html.escape(x)}</code>" for x in links_of(m)) or "-"
+    text = (f"🚨 <b>Link deleted</b>\n<b>Group:</b> {html.escape(await title(c, g))} (<code>{g}</code>)\n"
+            f"<b>User:</b> {u.mention}\n<b>ID:</b> <code>{u.id}</code>\n"
+            f"<b>Username:</b> {'@' + u.username if u.username else 'none'}\n<b>Link(s):</b>\n{links}")
+    owner = await gc_owner(c, g)
+    if owner:
+        try: return await c.send_message(owner, text, disable_web_page_preview=True)
+        except Exception as e: log.info("cannot PM owner %s of %s (%s) - owner must /start the bot", owner, g, e)
+    for uid in [d["_id"] async for d in cn.find({"groups": g})]:  # fallback: admins who /connect-ed this group
+        try: await c.send_message(uid, text, disable_web_page_preview=True)
+        except Exception: pass
 
 
 @app.on_message(filters.group & ~filters.service, group=5)
 async def antilink(c, m):
     g = m.chat.id
-    if g not in LINK or not m.from_user: return
+    mode = LINK.get(g)
+    if not mode or not m.from_user or m.from_user.is_self: return
     if not any(e.type in (E.URL, E.TEXT_LINK) for e in (m.entities or []) + (m.caption_entities or [])): return
-    if await is_adm(c, g, m.from_user.id): return
+    if mode == "on" and await is_adm(c, g, m.from_user.id): return  # admins exempt in normal mode
     try: await m.delete()
-    except Exception: return
+    except Exception as e:
+        log.warning("antilink: cannot delete in %s (%s) - make the bot admin with 'Delete messages'", g, e); return
     asyncio.create_task(warn(c, g, m.from_user.mention))
+    asyncio.create_task(report(c, g, m))
     m.stop_propagation()
 
 
@@ -415,7 +523,7 @@ async def main():
     await app.start(); log.info("STARTED as @%s - send /start to it", (await app.get_me()).username)
     try:
         await fl.create_index([("g", 1), ("k", 1)], unique=True)
-        ADMINS.update([d["_id"] async for d in ad.find()]); LINK.update([d["_id"] async for d in st.find({"al": True})])
+        ADMINS.update([d["_id"] async for d in ad.find()]); LINK.update({d["_id"]: ("on" if d["al"] is True else d["al"]) async for d in st.find({"al": {"$in": [True, "on", "all"]}})})
         log.info("MongoDB OK")
     except Exception as e:
         log.error("MongoDB problem (filters will not work): %s", e)
