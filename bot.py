@@ -2,14 +2,14 @@ import asyncio, hashlib, html, logging, os, random, re, time
 from collections import deque
 from datetime import datetime, timedelta
 from types import SimpleNamespace
-asyncio.set_event_loop(asyncio.new_event_loop())  # Pyrogram needs a loop at import time (Python 3.12+)
+asyncio.set_event_loop(asyncio.new_event_loop())
 from aiohttp import ClientSession, ClientTimeout, web
 from dotenv import load_dotenv
 from motor.motor_asyncio import AsyncIOMotorClient
 from pyrogram import Client, filters, idle
 from pyrogram.enums import ChatAction, ChatMembersFilter, ChatMemberStatus as S, ChatType as T, MessageEntityType as E, ParseMode
 from pymongo import ReturnDocument
-from pyrogram.types import ChatPermissions, InlineKeyboardButton as B, InlineKeyboardMarkup as M, InputMediaPhoto
+from pyrogram.types import ChatPermissions, InlineKeyboardButton as B, InlineKeyboardMarkup as M
 
 load_dotenv(); env = os.environ.get
 API_ID, API_HASH, TOKEN, MONGO = int(env("API_ID", 0)), env("API_HASH"), env("BOT_TOKEN"), env("MONGO_URI")
@@ -28,20 +28,27 @@ BTN, TAG = re.compile(r"\[(.+?)\]\(buttonurl:(.+?)((?::(?:same|red|green|blue))*
 STY = {"red": "danger", "green": "success", "blue": "primary"}
 plain = lambda s: html.unescape(TAG.sub("", s)).strip()
 
-# ---------------------------------------------------- start screen branding
-BRAND = "ALYA"                       # decorative letter buttons (one letter per button)
+# ---------------------------------------------------- branding & colour config
+BRAND = "ALYA"
 MAINTAINER = "Pʀɨʍɛ ƈօʀɛ"
 MAINTAINER_URL = "https://t.me/PrimeCoreHQ"
-START_IMGS = ["https://files.catbox.moe/sla8rd.jpg" "https://files.catbox.moe/9tqcsy.jpg" "https://files.catbox.moe/t3c8bc.jpg" "https://files.catbox.moe/xh6fdc.jpg"
-    # ⚠️ USE DIRECT IMAGE URLs HERE FOR "PREVIEW ONLY" MODE (e.g. "https://i.imgur.com/xyz.jpg")
-    # If you use Telegram file_ids (AgACAgIA...), it will send as a normal downloadable photo.
+START_IMGS = [
+    "https://files.catbox.moe/sla8rd.jpg",
+    "https://files.catbox.moe/9tqcsy.jpg",
+    "https://files.catbox.moe/t3c8bc.jpg",
+    "https://files.catbox.moe/xh6fdc.jpg",
 ]
 LOAD_EMOJIS = ["⚙️", "🔄", "⏳", "✨"]
+# 🎨 edit your button colours here: "red" | "green" | "blue" | "" (default)
+BTN_COLOR = {"letters": "", "add_group": "green", "commands": "blue", "settings": "blue",
+             "connections": "blue", "about": "blue", "back": "red", "delete": "red", "set": "blue"}
+DEFAULT_BTN_COLOR = ""   # colour for filter/welcome buttons saved without :red/:green/:blue
 
 SC = {"a":"ᴀ","b":"ʙ","c":"ᴄ","d":"ᴅ","e":"ᴇ","f":"ꜰ","g":"ɢ","h":"ʜ","i":"ɪ","j":"ᴊ","k":"ᴋ","l":"ʟ",
       "m":"ᴍ","n":"ɴ","o":"ᴏ","p":"ᴘ","q":"ǫ","r":"ʀ","s":"ꜱ","t":"ᴛ","u":"ᴜ","v":"ᴠ","w":"ᴡ","x":"x","y":"ʏ","z":"ᴢ"}
 def smallcaps(s): return "".join(SC.get(ch, ch) for ch in (s or "").lower())
 def is_url(img): return img.startswith("http")
+def sty(w): return STY.get((w or "").lower()) or None
 
 def greet():
     h = datetime.now().hour
@@ -56,31 +63,108 @@ def start_txt(u):
             "JUST ADD ME TO YOUR GROUP AND ENJOY!\n\n"
             f'<blockquote>▶ <b>MAINTAINED BY :</b> <a href="{MAINTAINER_URL}">{MAINTAINER}</a> ❞</blockquote>')
 
+# ------------------------------------------- raw Bot API layer (blockquote + colours + previews)
+def R(text, cb=None, url=None, s=None):
+    b = {"text": text}
+    if cb: b["callback_data"] = cb
+    if url: b["url"] = url
+    if sty(s): b["style"] = sty(s)
+    return b
+
+def raw_kb(rows):
+    kb = []
+    for r in rows or []:
+        nr = []
+        for b in r:
+            nb = {"text": b.get("text")}
+            if b.get("url"): nb["url"] = b["url"]
+            if b.get("cb") or b.get("callback_data"): nb["callback_data"] = b.get("cb") or b.get("callback_data")
+            sv = b.get("style") or b.get("s")
+            if sv: nb["style"] = sv if sv in ("danger", "success", "primary") else sty(sv)
+            nr.append({k: v for k, v in nb.items() if v})
+        kb.append(nr)
+    return {"inline_keyboard": kb}
+
+async def raw_post(method, pl):
+    async with ClientSession(timeout=ClientTimeout(total=30)) as s:
+        async with s.post(f"https://api.telegram.org/bot{TOKEN}/{method}", json=pl) as r:
+            j = await r.json()
+    if not j.get("ok"): raise RuntimeError(j.get("description"))
+    return j["result"]
+
+def _lpo(preview):
+    o = {"is_disabled": not preview}
+    if preview: o["show_above_link"] = True   # image appears ABOVE the text
+    return o
+
+async def ui_send(c, chat, text, rows=None, reply_id=None, preview=False):
+    pl = {"chat_id": chat, "text": text, "parse_mode": "HTML", "link_preview_options": _lpo(preview)}
+    if reply_id: pl["reply_parameters"] = {"message_id": reply_id, "allow_sending_without_reply": True}
+    if rows: pl["reply_markup"] = raw_kb(rows)
+    return (await raw_post("sendMessage", pl))["message_id"]
+
+async def ui_edit(c, chat, mid, text, rows=None, preview=False):
+    pl = {"chat_id": chat, "message_id": mid, "text": text, "parse_mode": "HTML", "link_preview_options": _lpo(preview)}
+    if rows: pl["reply_markup"] = raw_kb(rows)
+    return await raw_post("editMessageText", pl)
+
+async def raw_send_photo(chat, photo, caption, rows):
+    pl = {"chat_id": chat, "photo": photo, "caption": caption, "parse_mode": "HTML"}
+    if rows: pl["reply_markup"] = raw_kb(rows)
+    return (await raw_post("sendPhoto", pl))["message_id"]
+
+async def raw_edit_media(chat, mid, photo, caption, rows):
+    return await raw_post("editMessageMedia", {"chat_id": chat, "message_id": mid,
+                          "media": {"type": "photo", "media": photo, "caption": caption, "parse_mode": "HTML"},
+                          "reply_markup": raw_kb(rows)})
+
 def start_kb(idx, uname):
-    return M([[B(ch, callback_data=f"sb:img:{idx}") for ch in smallcaps(BRAND)],
-              [B("ADD ME TO YOUR GROUP ➕", url=f"https://t.me/{uname}?startgroup=true")],
-              [B("• COMMANDS •", callback_data="sb:help"), B("• SETTINGS •", callback_data="sb:set")],
-              [B("• CONNECTIONS •", callback_data="sb:conn"), B("• ABOUT •", callback_data="sb:about")]])
+    c = BTN_COLOR
+    return [
+        [R(ch, cb=f"sb:img:{idx}", s=c["letters"]) for ch in smallcaps(BRAND)],
+        [R("ADD ME TO YOUR GROUP", url=f"https://t.me/{uname}?startgroup=true", s=c["add_group"])],
+        [R("COMMANDS", cb="sb:help", s=c["commands"]), R("SETTINGS", cb="sb:set", s=c["settings"])],
+        [R("CONNECTIONS", cb="sb:conn", s=c["connections"]), R("ABOUT", cb="sb:about", s=c["about"])],
+    ]
+
+BACK = lambda: [R("◀ BACK", cb="sb:back", s=BTN_COLOR["back"])]
+
+async def send_start(c, chat, img, caption, kb):
+    if is_url(img): await ui_send(c, chat, f'<a href="{img}">\u200b</a>\n{caption}', kb, preview=True)
+    else: await raw_send_photo(chat, img, caption, kb)
+
+async def update_start(q, img, caption, kb):
+    chat, mid = q.message.chat.id, q.message.id
+    if is_url(img):
+        if q.message.photo:
+            try: await q.message.delete()
+            except Exception: pass
+            await ui_send(c=None, chat=chat, text=f'<a href="{img}">\u200b</a>\n{caption}', rows=kb, preview=True) if False else await ui_send(q._client, chat, f'<a href="{img}">\u200b</a>\n{caption}', kb, preview=True)
+        else:
+            await ui_edit(chat, mid, f'<a href="{img}">\u200b</a>\n{caption}', kb, preview=True)
+    else:
+        if q.message.photo: await raw_edit_media(chat, mid, img, caption, kb)
+        else:
+            try: await q.message.delete()
+            except Exception: pass
+            await raw_send_photo(chat, img, caption, kb)
 
 # ------------------------------------------------------- loading animations
-LD = {}  # (chat_id, user_id) -> active loader message
-
+LD = {}
 async def _ttl(msg, ttl):
     await asyncio.sleep(ttl)
     try: await msg.delete()
     except Exception: pass
 
 async def think(c, m, base="ᴡᴀɪᴛ  sᴇᴄ", emojis=None, ticks=3, delay=0.4, ttl=10):
-    """Send an animated 'base. .. ...' loader message (Bold + Italic + Small Caps)."""
     if not m.from_user: return None
     msg = None
     for i in range(1, ticks + 1):
-        body = base + "." * i
-        styled_body = f"<b><i>{body}</i></b>"
-        if emojis: styled_body = f"{emojis[(i - 1) % len(emojis)]} {styled_body}"
-        if msg is None: msg = await c.send_message(m.chat.id, styled_body)
+        body = f"<b><i>{base}{'.' * i}</i></b>"
+        if emojis: body = f"{emojis[(i - 1) % len(emojis)]} {body}"
+        if msg is None: msg = await c.send_message(m.chat.id, body)
         else:
-            try: await msg.edit_text(styled_body)
+            try: await msg.edit_text(body)
             except Exception: pass
         await asyncio.sleep(delay)
     LD[(m.chat.id, m.from_user.id)] = msg
@@ -93,43 +177,30 @@ async def clear_ld(c, chat, uid):
         try: await msg.delete()
         except Exception: pass
 
-async def ship(c, m, text=None, photo=None, **kw):
-    """Delete the loader (if any) and send the real reply."""
+async def ship(c, m, text=None, rows=None):
     if m.from_user: await clear_ld(c, m.chat.id, m.from_user.id)
-    if photo is not None: return await m.reply_photo(photo, caption=text, **kw)
-    return await m.reply_text(text, **kw)
+    return await ui_send(c, m.chat.id, text, rows, reply_id=m.id)
 
 async def qanim(q, base="ᴡᴀɪᴛ  sᴇᴄ", ticks=3, delay=0.3):
-    """Animate the clicked message itself (Bold + Italic + Small Caps)."""
     for i in range(1, ticks + 1):
-        body = base + "." * i
-        styled_body = f"<b><i>{body}</i></b>"
+        body = f"<b><i>{base}{'.' * i}</i></b>"
         try:
-            if q.message.media: await q.message.edit_caption(styled_body)
-            else: await q.message.edit_text(styled_body)
+            if q.message.media: await q.message.edit_caption(body)
+            else: await q.message.edit_text(body)
         except Exception: pass
         await asyncio.sleep(delay)
 
-# Helper to handle URL previews vs File IDs safely
-async def send_start(c, chat, img, caption, kb):
-    if is_url(img):
-        # Send as link preview (hides URL using zero-width space \u200b)
-        await c.send_message(chat, f'<a href="{img}">\u200b</a>\n{caption}', disable_web_page_preview=False, reply_markup=kb)
-    else:
-        await c.send_photo(chat, img, caption=caption, reply_markup=kb)
-
-async def update_start(q, img, caption, kb):
-    if is_url(img):
-        try: await q.message.delete()
-        except Exception: pass
-        await q.message.chat.send_message(f'<a href="{img}">\u200b</a>\n{caption}', disable_web_page_preview=False, reply_markup=kb)
-    else:
-        if q.message.photo:
-            await q.message.edit_media(InputMediaPhoto(img, caption=caption, parse_mode=ParseMode.HTML), reply_markup=kb)
-        else:
-            try: await q.message.delete()
-            except Exception: pass
-            await q.message.chat.send_photo(img, caption=caption, reply_markup=kb)
+def apply_default(rows):
+    if not DEFAULT_BTN_COLOR or not rows: return rows
+    out = []
+    for r in rows:
+        nr = []
+        for b in r:
+            b = dict(b)
+            if not b.get("s") and not b.get("style"): b["s"] = sty(DEFAULT_BTN_COLOR)
+            nr.append(b)
+        out.append(nr)
+    return out
 
 HELP = """<b>🤖 Filter Bot</b>
 
@@ -155,9 +226,7 @@ HELP = """<b>🤖 Filter Bot</b>
 
 <blockquote>
 <b>👑 Bot Owner / Admins</b>
-• <code>/broadcast</code> (reply) - send to all groups &amp; channels
-• <code>/stats</code> - view bot statistics
-• <code>/addadmin</code> id | <code>/rmadmin</code> id
+• <code>/broadcast</code> (reply) | <code>/stats</code> | <code>/addadmin</code> id | <code>/rmadmin</code> id
 • <code>/info</code> - view user info
 </blockquote>
 """
@@ -227,9 +296,9 @@ async def conn_set(u, g, add=True):
 
 async def api_send(chat, reply_id, d):
     ft = d.get("ft")
-    kb = [[{k: v for k, v in (("text", b["text"]), ("url", b["url"]), ("style", b.get("s"))) if v} for b in r] for r in d["b"]]
-    pl = {"chat_id": chat, "reply_parameters": {"message_id": reply_id, "allow_sending_without_reply": True},
-          "reply_markup": {"inline_keyboard": kb}}
+    kb = raw_kb(d.get("b"))["inline_keyboard"]
+    pl = {"chat_id": chat, "reply_parameters": {"message_id": reply_id, "allow_sending_without_reply": True}}
+    if kb: pl["reply_markup"] = {"inline_keyboard": kb}
     if ft:
         pl[ft] = d["fid"]
         if ft not in ("sticker", "video_note") and d.get("t"): pl["caption"], pl["parse_mode"] = d["t"], "HTML"
@@ -237,32 +306,32 @@ async def api_send(chat, reply_id, d):
     else:
         pl.update(text=d.get("t") or ".", parse_mode="HTML", link_preview_options={"is_disabled": True})
         method = "sendMessage"
-    async with ClientSession(timeout=ClientTimeout(total=30)) as s:
-        async with s.post(f"https://api.telegram.org/bot{TOKEN}/{method}", json=pl) as r:
-            j = await r.json()
-    if not j.get("ok"): raise RuntimeError(j.get("description"))
-    return j["result"]["message_id"]
+    return await raw_post(method, pl)
 
 async def send(c, m, d):
-    if any(b.get("s") for r in d.get("b") or [] for b in r):
-        try: return await api_send(m.chat.id, m.id, d)
-        except Exception as e: log.warning("coloured send failed (%s) - falling back to plain buttons", e)
-    mk = M([[B(b["text"], url=b["url"]) for b in r] for r in d["b"]]) if d.get("b") else None
+    d = dict(d)
+    if d.get("b"): d["b"] = apply_default(d["b"])
+    try:
+        r = await api_send(m.chat.id, m.id, d)
+        return r.get("message_id") if isinstance(r, dict) else r
+    except Exception as e:
+        log.warning("raw send failed (%s) - falling back to pyrogram", e)
+    mk = M([[B(b["text"], url=b.get("url")) for b in r] for r in d.get("b") or []]) if d.get("b") else None
     ft, kw = d.get("ft"), dict(chat_id=m.chat.id, reply_to_message_id=m.id, reply_markup=mk)
     for _ in range(2):
         try:
             if ft:
-                extra = {} if ft in ("sticker", "video_note") else {"caption": d["t"]}
+                extra = {} if ft in ("sticker", "video_note") else {"caption": d.get("t")}
                 return await getattr(c, "send_" + ft)(**{ft: d["fid"]}, **extra, **kw)
-            return await c.send_message(text=d["t"] or ".", disable_web_page_preview=True, **kw)
-        except FloodWait as e: await asyncio.sleep(e.value)
-        except Exception as e: return log.warning("send failed %s: %s", m.chat.id, e)
+            return await c.send_message(text=d.get("t") or ".", disable_web_page_preview=True, **kw)
+        except Exception as e:
+            if type(e).__name__ == "FloodWait": await asyncio.sleep(e.value)
+            else: return log.warning("send failed %s: %s", m.chat.id, e)
 
 @app.on_message(group=-1)
 async def debug_log(c, m):
     log.info("update: chat=%s user=%s text=%r", m.chat.id, m.from_user and m.from_user.id, (m.text or m.caption or "")[:40])
 
-# ------------------------------------------------------------------ /start
 @app.on_message(filters.command(["start", "help"]))
 async def start(c, m):
     if m.chat.type == T.PRIVATE and m.command[1:2] == ["setwel"]: return await setwel(c, m)
@@ -274,25 +343,25 @@ async def start(c, m):
             idx = random.randrange(len(START_IMGS))
             await send_start(c, m.chat.id, START_IMGS[idx], start_txt(m.from_user), start_kb(idx, c.me.username))
         else:
-            await m.reply_text(start_txt(m.from_user), reply_markup=start_kb(0, c.me.username))
+            await ui_send(c, m.chat.id, start_txt(m.from_user), start_kb(0, c.me.username), reply_id=m.id)
         return
     await think(c, m)
     await ship(c, m, HELP)
 
-async def sb_text(c, q, txt, kb):
+async def sb_show(c, q, txt, rows):
     chat = q.message.chat.id
     if q.message.photo or q.message.media:
         try: await q.message.delete()
         except Exception: pass
-        await c.send_message(chat, txt, reply_markup=kb, disable_web_page_preview=True)
+        await ui_send(c, chat, txt, rows)
     else:
-        try: await q.message.edit_text(txt, reply_markup=kb)
-        except Exception: await c.send_message(chat, txt, reply_markup=kb, disable_web_page_preview=True)
+        try: await ui_edit(chat, q.message.id, txt, rows)
+        except Exception: await ui_send(c, chat, txt, rows)
 
 @app.on_callback_query(filters.regex(r"^sb:"))
 async def sb_cb(c, q):
     p = q.data.split(":"); a = p[1]; chat = q.message.chat.id
-    if a == "img":  # ALYA letter buttons -> NO animation, just swap image instantly
+    if a == "img":  # letter buttons: no animation, instant image swap
         if not START_IMGS: return await q.answer("No images added yet.", show_alert=True)
         cur = int(p[2]) if len(p) > 2 and p[2].lstrip("-").isdigit() else -1
         idx = random.choice([i for i in range(len(START_IMGS)) if i != cur] or [0])
@@ -300,57 +369,47 @@ async def sb_cb(c, q):
         await update_start(q, START_IMGS[idx], start_txt(q.from_user), start_kb(idx, c.me.username))
         return
     if a == "back":
-        await qanim(q)
-        await q.answer()
+        await qanim(q); await q.answer()
         if START_IMGS:
             idx = random.randrange(len(START_IMGS))
             try: await q.message.delete()
             except Exception: pass
             await send_start(c, chat, START_IMGS[idx], start_txt(q.from_user), start_kb(idx, c.me.username))
         else:
-            await sb_text(c, q, start_txt(q.from_user), start_kb(0, c.me.username))
+            await sb_show(c, q, start_txt(q.from_user), start_kb(0, c.me.username))
         return
     if a == "help":
         await qanim(q); await q.answer()
-        return await sb_text(c, q, HELP, M([[B("◀ BACK", callback_data="sb:back")]]))
+        return await sb_show(c, q, HELP, BACK())
     if a == "about":
         await qanim(q); await q.answer()
-        txt = (f"<b>❓ ABOUT {BRAND}</b>\n\n"
-               "<blockquote>I AM AN AUTO FILTER BOT WITH PREMIUM FEATURES.\n"
+        txt = (f"<b>❓ ABOUT {BRAND}</b>\n\n<blockquote>I AM AN AUTO FILTER BOT WITH PREMIUM FEATURES.\n"
                f"MAINTAINED BY : <a href=\"{MAINTAINER_URL}\">{MAINTAINER}</a></blockquote>")
-        return await sb_text(c, q, txt, M([[B("◀ BACK", callback_data="sb:back")]]))
+        return await sb_show(c, q, txt, BACK())
     if a == "set":
         g = (await cn.find_one({"_id": q.from_user.id}) or {}).get("active")
         if not g: return await q.answer("Connect a group first: send /connect in your group.", show_alert=True)
         if not await is_adm(c, g, q.from_user.id, trust=True): return await q.answer("Admins only.", show_alert=True)
         await qanim(q); await q.answer()
         cf = await cfg(g)
-        kb = st_kb(g, cf); kb.inline_keyboard.append([B("◀ BACK", callback_data="sb:back")])
-        return await sb_text(c, q, st_txt(cf), kb)
+        return await sb_show(c, q, st_txt(cf), st_kb(g, cf) + BACK())
     if a == "conn":
         await qanim(q); await q.answer()
-        kb = await conn_kb(c, q.from_user.id)
-        if kb: kb.inline_keyboard.append([B("◀ BACK", callback_data="sb:back")])
-        return await sb_text(c, q, "<b>🔗 YOUR GROUPS</b>\n\n<blockquote>Tap to select, 🗑 to remove.</blockquote>" if kb
-                             else "<b>📭 NO CONNECTIONS</b>\n\n<blockquote>Send /connect in your group first.</blockquote>",
-                             kb or M([[B("◀ BACK", callback_data="sb:back")]]))
+        rows = await conn_kb(c, q.from_user.id)
+        return await sb_show(c, q, conn_txt(bool(rows)), (rows or []) + BACK())
 
 @app.on_message(filters.command("info"))
 async def info_cmd(c, m):
     await think(c, m)
     u = m.reply_to_message.from_user if m.reply_to_message and m.reply_to_message.from_user else m.from_user
-    if not u:
-        return await ship(c, m, "<b>❌ NO USER</b>\n\n<blockquote>Reply to a user or send in a group to see info.</blockquote>")
+    if not u: return await ship(c, m, "<b>❌ NO USER</b>\n\n<blockquote>Reply to a user or send in a group to see info.</blockquote>")
     text = "<b>👤 USER INFO</b>\n\n<blockquote>"
-    text += f"<b>🆔 ID:</b> <code>{u.id}</code>\n"
-    text += f"<b>👤 FIRST NAME:</b> {html.escape(u.first_name or 'None')}\n"
+    text += f"<b>🆔 ID:</b> <code>{u.id}</code>\n<b>👤 FIRST NAME:</b> {html.escape(u.first_name or 'None')}\n"
     if u.last_name: text += f"<b>👤 LAST NAME:</b> {html.escape(u.last_name)}\n"
     if u.username: text += f"<b>🔗 USERNAME:</b> @{u.username}\n"
-    text += f"<b>👑 PREMIUM:</b> {'✅ Yes' if u.is_premium else '❌ No'}\n"
-    text += f"<b>🤖 BOT:</b> {'✅ Yes' if u.is_bot else '❌ No'}\n"
-    text += f"<b>🔗 PROFILE:</b> <a href='tg://user?id={u.id}'>Click Here</a>"
-    text += "</blockquote>"
-    await ship(c, m, text, disable_web_page_preview=True)
+    text += f"<b>👑 PREMIUM:</b> {'✅ Yes' if u.is_premium else '❌ No'}\n<b>🤖 BOT:</b> {'✅ Yes' if u.is_bot else '❌ No'}\n"
+    text += f"<b>🔗 PROFILE:</b> <a href='tg://user?id={u.id}'>Click Here</a></blockquote>"
+    await ship(c, m, text)
 
 @app.on_message(filters.command(["filter", "add"]))
 async def add(c, m):
@@ -365,15 +424,7 @@ async def add(c, m):
     if r and not arg.lstrip().startswith(('"', "&quot;", "“")):
         k, rest = (plain(arg).lower() if low else plain(arg)), ""
     if not k or len(k) > 100:
-        return await ship(c, m,
-            "<b>❌ USAGE ERROR</b>\n\n"
-            "<blockquote>"
-            "Reply to a message with <code>/filter keyword</code>\n"
-            "Or <code>/filter word text</code>\n\n"
-            "<b>Modes:</b>\n"
-            "• <code>contains:price</code>\n"
-            "• <code>regex:^hi(llo)?$</code>"
-            "</blockquote>")
+        return await ship(c, m, "<b>❌ USAGE ERROR</b>\n\n<blockquote>Reply to a message with <code>/filter keyword</code>\nOr <code>/filter word text</code>\n\n<b>Modes:</b>\n• <code>contains:price</code>\n• <code>regex:^hi(llo)?$</code></blockquote>")
     if mt == "regex":
         try: re.compile(k)
         except re.error as e: return await ship(c, m, f"<b>❌ INVALID REGEX</b>\n\n<blockquote>{html.escape(str(e))}</blockquote>")
@@ -400,15 +451,18 @@ async def fl_kb(g, page=0):
     ds = sorted([(d["k"], d.get("mt", "word")) async for d in fl.find({"g": g}, {"k": 1, "mt": 1})])
     ks, pre = len(ds), {"regex": "re: ", "contains": "~ "}
     pages = max(1, -(-ks // 8)); page = max(0, min(page, pages - 1))
-    rows = [[B((pre.get(mt, "") + k)[:32], callback_data=f"fv:{g}:{kh(k)}:{page}"), B("🗑", callback_data=f"fd:{g}:{kh(k)}:{page}")] for k, mt in ds[page * 8:page * 8 + 8]]
+    rows = [[R((pre.get(mt, "") + k)[:32], cb=f"fv:{g}:{kh(k)}:{page}"), R("🗑", cb=f"fd:{g}:{kh(k)}:{page}", s=BTN_COLOR["delete"])] for k, mt in ds[page * 8:page * 8 + 8]]
     if pages > 1:
-        rows.append([B("◀", callback_data=f"fp:{g}:{page - 1}"), B(f"{page + 1}/{pages}", callback_data=f"fp:{g}:{page}"), B("▶", callback_data=f"fp:{g}:{page + 1}")])
-    return (M(rows) if rows else None), ks
+        rows.append([R("◀", cb=f"fp:{g}:{page - 1}"), R(f"{page + 1}/{pages}", cb=f"fp:{g}:{page}"), R("▶", cb=f"fp:{g}:{page + 1}")])
+    return (rows if rows else None), ks
+
+def panel_txt(t, n, has):
+    if not has: return "<b>📭 NO FILTERS</b>\n\n<blockquote>No filters yet. Reply to a post with <code>/filter keyword</code> to add one.</blockquote>"
+    return f"<b>📋 FILTERS IN {html.escape(t)}</b> ({n})\n\n<blockquote>Tap 🗑 to delete a filter.</blockquote>"
 
 async def panel(c, m, g):
     kb, n = await fl_kb(g)
-    if not kb: return await ship(c, m, "<b>📭 NO FILTERS</b>\n\n<blockquote>No filters yet. Reply to a post with <code>/filter keyword</code> to add one.</blockquote>")
-    await ship(c, m, f"<b>📋 FILTERS IN {html.escape(await title(c, g))}</b> ({n})\n\n<blockquote>Tap 🗑 to delete a filter.</blockquote>", reply_markup=kb)
+    await ship(c, m, panel_txt(await title(c, g), n, bool(kb)), kb)
 
 @app.on_message(filters.command("filters"))
 async def lst(c, m):
@@ -434,7 +488,7 @@ async def fl_cb(c, q):
         if k: await fl.delete_one({"g": g, "k": k}); KW.pop(g, None)
         await q.answer("Deleted 🗑" if k else "Already deleted")
     kb, n = await fl_kb(g, page)
-    try: await q.message.edit_text(f"<b>📋 FILTERS IN {html.escape(await title(c, g))}</b> ({n})\n\n<blockquote>Tap 🗑 to delete a filter.</blockquote>" if kb else "<b>📭 NO FILTERS</b>\n\n<blockquote>No filters left.</blockquote>", reply_markup=kb)
+    try: await ui_edit(q.message.chat.id, q.message.id, panel_txt(await title(c, g), n, bool(kb)), kb)
     except Exception: pass
 
 @app.on_message(filters.command(["del", "stop"]))
@@ -456,18 +510,19 @@ async def delall(c, m):
     g = await target(c, m, owner=True)
     if g is None: return
     await think(c, m)
-    await ship(c, m, "<b>⚠️ WARNING</b>\n\n<blockquote>Delete <b>all</b> filters?</blockquote>", reply_markup=M([[B("Yes", callback_data=f"da:y:{g}"), B("Cancel", callback_data="da:n:0")]]))
+    await ship(c, m, "<b>⚠️ WARNING</b>\n\n<blockquote>Delete <b>all</b> filters?</blockquote>",
+               [[R("Yes", cb=f"da:y:{g}", s="danger"), R("Cancel", cb="da:n:0")]])
 
 @app.on_callback_query(filters.regex(r"^da:"))
 async def delall_cb(c, q):
     _, a, g = q.data.split(":"); g = int(g)
     if a != "y":
         await qanim(q)
-        return await q.message.edit_text("<b>❌ CANCELLED</b>")
+        return await ui_edit(q.message.chat.id, q.message.id, "<b>❌ CANCELLED</b>")
     if not await is_adm(c, g, q.from_user.id, True): return await q.answer("Owner only.", show_alert=True)
     await qanim(q)
     r = await fl.delete_many({"g": g}); KW.pop(g, None)
-    await q.message.edit_text(f"<b>✅ SUCCESS</b>\n\n<blockquote>Deleted {r.deleted_count} filter(s).</blockquote>")
+    await ui_edit(q.message.chat.id, q.message.id, f"<b>✅ SUCCESS</b>\n\n<blockquote>Deleted {r.deleted_count} filter(s).</blockquote>")
 
 @app.on_message(filters.command("color"))
 async def color(c, m):
@@ -518,14 +573,17 @@ async def disconnect(c, m):
 
 async def conn_kb(c, u):
     d = await cn.find_one({"_id": u}) or {}
-    rows = [[B(("✅ " if g == d.get("active") else "") + await title(c, g), callback_data=f"cn:s:{g}"), B("🗑", callback_data=f"cn:d:{g}")] for g in d.get("groups", [])]
-    return M(rows) if rows else None
+    rows = [[R(("✅ " if g == d.get("active") else "") + await title(c, g), cb=f"cn:s:{g}"), R("🗑", cb=f"cn:d:{g}", s=BTN_COLOR["delete"])] for g in d.get("groups", [])]
+    return rows or None
+
+def conn_txt(has):
+    return "<b>🔗 YOUR GROUPS</b>\n\n<blockquote>Tap to select, 🗑 to remove.</blockquote>" if has else "<b>📭 NO CONNECTIONS</b>\n\n<blockquote>Send /connect in your group first.</blockquote>"
 
 @app.on_message(filters.command("connections") & filters.private)
 async def conns(c, m):
     await think(c, m)
     kb = await conn_kb(c, m.from_user.id)
-    await ship(c, m, "<b>🔗 YOUR GROUPS</b>\n\n<blockquote>Tap to select, 🗑 to remove.</blockquote>" if kb else "<b>📭 NO CONNECTIONS</b>", reply_markup=kb)
+    await ship(c, m, conn_txt(bool(kb)), kb)
 
 @app.on_callback_query(filters.regex(r"^cn:"))
 async def conn_cb(c, q):
@@ -535,7 +593,8 @@ async def conn_cb(c, q):
     else: await conn_set(u, g, False)
     await q.answer("Done")
     kb = await conn_kb(c, u)
-    await (q.message.edit_reply_markup(kb) if kb else q.message.edit_text("<b>📭 NO CONNECTIONS</b>"))
+    try: await ui_edit(q.message.chat.id, q.message.id, conn_txt(bool(kb)), kb)
+    except Exception: pass
 
 CFG, PEND, FLOOD, ADC, OWN = {}, {}, {}, {}, {}
 
@@ -558,23 +617,20 @@ async def can(c, q, g):
 
 def st_txt(cf):
     return ("<b>⚙️ GROUP PROTECTION</b>\n\n"
-            "<blockquote>"
-            "Admins &amp; the owner are always allowed.\n"
-            "Turn on 🧪 <b>Test mode</b> to test with your own account.\n\n"
+            "<blockquote>Admins &amp; the owner are always allowed.\nTurn on 🧪 <b>Test mode</b> to test with your own account.\n\n"
             "• <b>Anti-link</b>: deletes links (except allowed) and PMs the owner.\n"
             "• <b>Anti-forward</b> / <b>Anti-mention</b>: delete forwarded messages / @mentions.\n"
             f"• <b>Flood</b>: {cf.get('fn', 6)} messages in {cf.get('ft', 5)}s = 10 min mute.\n"
-            "• <b>Auto-warn</b>: each deleted message adds a warning; at the limit the user is punished."
-            "</blockquote>"
+            "• <b>Auto-warn</b>: each deleted message adds a warning; at the limit the user is punished.</blockquote>"
             "\n<i>Bot needs admin rights: Delete messages + Restrict members.</i>")
 
 def st_kb(g, cf):
-    b = lambda lb, k: B(f"{lb} {'✅' if cf.get(k) else '⛔'}", callback_data=f"st:{g}:{k}")
-    return M([[b("🔗 Anti-link", "al"), b("↪️ Anti-forward", "af")],
-              [b("@ Anti-mention", "am"), b("🌊 Flood", "fd")],
-              [b("⚠️ Auto-warn", "aw"), b("🧪 Test mode", "tm")],
-              [B("➖", callback_data=f"st:{g}:w-"), B(f"Warn limit: {cf.get('wl', 3)}", callback_data=f"st:{g}:w0"), B("➕", callback_data=f"st:{g}:w+")],
-              [B(f"Warn action: {cf.get('wa', 'mute')}", callback_data=f"st:{g}:wa")]])
+    b = lambda lb, k: R(f"{lb} {'✅' if cf.get(k) else '⛔'}", cb=f"st:{g}:{k}")
+    return [[b("🔗 Anti-link", "al"), b("↪️ Anti-forward", "af")],
+            [b("@ Anti-mention", "am"), b("🌊 Flood", "fd")],
+            [b("⚠️ Auto-warn", "aw"), b("🧪 Test mode", "tm")],
+            [R("➖", cb=f"st:{g}:w-"), R(f"Warn limit: {cf.get('wl', 3)}", cb=f"st:{g}:w0"), R("➕", cb=f"st:{g}:w+")],
+            [R(f"Warn action: {cf.get('wa', 'mute')}", cb=f"st:{g}:wa")]]
 
 @app.on_message(filters.command(["settings", "antilink"]))
 async def settings_cmd(c, m):
@@ -583,7 +639,7 @@ async def settings_cmd(c, m):
     if m.command[0] == "antilink" and m.command[1:2] in (["on"], ["off"]): await cfg_set(g, al=m.command[1] == "on")
     await think(c, m)
     cf = await cfg(g)
-    await ship(c, m, st_txt(cf), reply_markup=st_kb(g, cf))
+    await ship(c, m, st_txt(cf), st_kb(g, cf))
 
 @app.on_callback_query(filters.regex(r"^st:"))
 async def st_cb(c, q):
@@ -595,7 +651,7 @@ async def st_cb(c, q):
     elif k in ("w+", "w-"): await cfg_set(g, wl=max(2, min(10, cf.get("wl", 3) + (1 if k == "w+" else -1))))
     elif k == "wa": await cfg_set(g, wa={"mute": "kick", "kick": "ban"}.get(cf.get("wa", "mute"), "mute"))
     await q.answer()
-    try: await q.message.edit_text(st_txt(cf), reply_markup=st_kb(g, cf))
+    try: await ui_edit(q.message.chat.id, q.message.id, st_txt(cf), st_kb(g, cf))
     except Exception: pass
 
 @app.on_message(filters.command("setflood"))
@@ -609,10 +665,12 @@ async def setflood(c, m):
     await cfg_set(g, fn=n, ft=t)
     await ship(c, m, f"<b>✅ UPDATED</b>\n\n<blockquote>Flood limit: {n} messages in {t} seconds.</blockquote>")
 
-async def tmp(c, g, text, secs=60, kb=None):
+async def tmp(c, g, text, secs=60, rows=None):
     try:
-        w = await c.send_message(g, text, reply_markup=kb, disable_web_page_preview=True)
-        await asyncio.sleep(secs); await w.delete()
+        mid = await ui_send(c, g, text, rows)
+        await asyncio.sleep(secs)
+        try: await c.delete_messages(g, mid)
+        except Exception: pass
     except Exception: pass
 
 async def add_warn(c, g, u, why):
@@ -620,7 +678,7 @@ async def add_warn(c, g, u, why):
     r = await wn.find_one_and_update({"g": g, "u": u.id}, {"$inc": {"n": 1}}, upsert=True, return_document=ReturnDocument.AFTER)
     n = r["n"]
     if n < lim:
-        return f"<b>⚠️ WARNING ADDED</b>\n\n<blockquote>{u.mention} warned <b>({n}/{lim})</b>\nReason: {html.escape(why)}</blockquote>", M([[B("🗑 Remove warn", callback_data=f"uw:{g}:{u.id}")]])
+        return f"<b>⚠️ WARNING ADDED</b>\n\n<blockquote>{u.mention} warned <b>({n}/{lim})</b>\nReason: {html.escape(why)}</blockquote>", [[R("🗑 Remove warn", cb=f"uw:{g}:{u.id}")]]
     await wn.delete_one({"g": g, "u": u.id})
     act = cf.get("wa", "mute")
     try:
@@ -631,7 +689,7 @@ async def add_warn(c, g, u, why):
         done = {"mute": "muted", "kick": "kicked", "ban": "banned"}[act]
     except Exception as e:
         log.warning("warn action failed in %s: %s", g, e); done = "NOT punished (I need the 'Restrict members' admin right)"
-    return f"<b>🚫 LIMIT REACHED</b>\n\n<blockquote>{u.mention} reached {lim} warnings and was {done}.\nReason: {html.escape(why)}</blockquote>", M([[B("↩️ Undo", callback_data=f"ub:{g}:{u.id}")]])
+    return f"<b>🚫 LIMIT REACHED</b>\n\n<blockquote>{u.mention} reached {lim} warnings and was {done}.\nReason: {html.escape(why)}</blockquote>", [[R("↩️ Undo", cb=f"ub:{g}:{u.id}")]]
 
 async def tgt_user(c, m):
     if m.chat.type not in GRP or not m.from_user:
@@ -653,7 +711,7 @@ async def warn_cmd(c, m):
     if await is_adm(c, g, u.id): return await ship(c, m, "<b>❌ CANNOT WARN</b>\n\n<blockquote>I can't warn admins.</blockquote>")
     await think(c, m)
     txt, kb = await add_warn(c, g, u, " ".join(m.command[1:]) or "no reason given")
-    await ship(c, m, txt, reply_markup=kb)
+    await ship(c, m, txt, kb)
 
 @app.on_message(filters.command(["unwarn", "resetwarns"]))
 async def unwarn_cmd(c, m):
@@ -698,7 +756,7 @@ async def undo_cb(c, q):
         except Exception: pass
         msg = "<b>↩️ UNDONE</b>\n\n<blockquote>Punishment undone.</blockquote>"
     await q.answer("Done")
-    try: await q.message.edit_text(msg)
+    try: await ui_edit(q.message.chat.id, q.message.id, msg)
     except Exception: pass
 
 def norm(u): return re.sub(r"^(?:https?://)?(?:www\.)?", "", u.strip().lower()).rstrip("/")
@@ -710,17 +768,9 @@ def allowed(link, wl):
 def dom_view(g, cf):
     ds = cf.get("dom", [])
     if not ds:
-        return ("<b>🔗 ALLOWED LINKS</b>\n\n"
-                "<blockquote>"
-                "No allowed links yet.\n"
-                "Add: <code>/allowlink domain.com</code> or <code>/allowlink t.me/yourchannel</code>"
-                "</blockquote>"), None
-    return ("<b>🔗 ALLOWED LINKS</b>\n\n"
-            "<blockquote>"
-            "Anti-link ignores these domains.\n"
-            "Add more: <code>/allowlink domain.com</code>"
-            "</blockquote>",
-            M([[B(d[:40], callback_data=f"dn:{g}:{kh(d)}"), B("🗑", callback_data=f"dd:{g}:{kh(d)}")] for d in ds]))
+        return ("<b>🔗 ALLOWED LINKS</b>\n\n<blockquote>No allowed links yet.\nAdd: <code>/allowlink domain.com</code> or <code>/allowlink t.me/yourchannel</code></blockquote>"), None
+    return ("<b>🔗 ALLOWED LINKS</b>\n\n<blockquote>Anti-link ignores these domains.\nAdd more: <code>/allowlink domain.com</code></blockquote>",
+            [[R(d[:40], cb=f"dn:{g}:{kh(d)}"), R("🗑", cb=f"dd:{g}:{kh(d)}", s=BTN_COLOR["delete"])] for d in ds])
 
 @app.on_message(filters.command(["allowlink", "allowlinks"]))
 async def allowlink(c, m):
@@ -731,7 +781,7 @@ async def allowlink(c, m):
     cf = await cfg(g)
     if new: await cfg_set(g, dom=list(dict.fromkeys(cf.get("dom", []) + new)))
     txt, kb = dom_view(g, cf)
-    await ship(c, m, txt, reply_markup=kb)
+    await ship(c, m, txt, kb)
 
 @app.on_callback_query(filters.regex(r"^d[dn]:"))
 async def dom_cb(c, q):
@@ -742,7 +792,7 @@ async def dom_cb(c, q):
     if a == "dd": await cfg_set(g, dom=[d for d in cf.get("dom", []) if kh(d) != h])
     await q.answer("Removed" if a == "dd" else None)
     txt, kb = dom_view(g, cf)
-    try: await q.message.edit_text(txt, reply_markup=kb)
+    try: await ui_edit(q.message.chat.id, q.message.id, txt, kb)
     except Exception: pass
 
 async def gc_owner(c, g):
@@ -793,7 +843,6 @@ async def guard(c, m):
     if not (cf.get("al") or cf.get("af") or cf.get("am") or cf.get("fd")): return
     if not cf.get("tm") and await adm_c(c, g, u.id): return
     ents = (m.entities or []) + (m.caption_entities or [])
-
     if cf.get("fd"):
         dq, now = FLOOD.setdefault((g, u.id), deque(maxlen=30)), time.time()
         dq.append((now, m.id))
@@ -804,16 +853,13 @@ async def guard(c, m):
             except Exception as e: log.warning("flood: cannot mute in %s (%s) - give the bot 'Restrict members'", g, e)
             try: await c.delete_messages(g, ids)
             except Exception: pass
-            asyncio.create_task(tmp(c, g, f"<b>🌊 FLOOD MUTE</b>\n\n<blockquote>{u.mention} was muted for 10 minutes for flooding.</blockquote>", 60, M([[B("↩️ Undo", callback_data=f"ub:{g}:{u.id}")]])))
+            asyncio.create_task(tmp(c, g, f"<b>🌊 FLOOD MUTE</b>\n\n<blockquote>{u.mention} was muted for 10 minutes for flooding.</blockquote>", 60, [[R("↩️ Undo", cb=f"ub:{g}:{u.id}")]])))
             if cf.get("aw"):
                 wt, wk = await add_warn(c, g, u, "flooding"); asyncio.create_task(tmp(c, g, wt, 60, wk))
             m.stop_propagation()
-
     fwd = getattr(m, "forward_date", None) or getattr(m, "forward_from_chat", None) or getattr(m, "forward_sender_name", None)
     if cf.get("af") and fwd and await punish(c, g, m, "forwarded messages are not allowed here"): m.stop_propagation()
-
     if cf.get("am") and any(e.type == E.MENTION for e in ents) and await punish(c, g, m, "@mentions are not allowed here"): m.stop_propagation()
-
     if cf.get("al") and any(e.type in (E.URL, E.TEXT_LINK) for e in ents):
         bad = [x for x in links_of(m) if not allowed(x, cf.get("dom", []))]
         if bad and await punish(c, g, m, "links are not allowed here"):
@@ -826,7 +872,6 @@ async def del_service(c, m):
 
 WEL_VARS = "{first} {last} {fullname} {mention} {username} {id} {group} {count}"
 WS = [0, 60, 300, 600]
-
 def fmt_s(s): return "off" if not s else f"{s // 60}m"
 
 async def wel_text(c, t, users, chat):
@@ -848,31 +893,28 @@ async def wel_view(c, g):
     has = bool(w.get("t") or w.get("fid"))
     t = "<b>👋 WELCOME MESSAGE</b>\n\n"
     if has:
-        t += f"<blockquote>Status: {'✅ ON' if w.get('on') else '⛔ OFF'} | Type: {w.get('ft') or 'text'}\n"
-        t += f"Buttons: {sum(len(r) for r in w.get('b') or [])} | Auto-delete: {fmt_s(w.get('ad', 0))}</blockquote>\n"
+        t += f"<blockquote>Status: {'✅ ON' if w.get('on') else '⛔ OFF'} | Type: {w.get('ft') or 'text'}\nButtons: {sum(len(r) for r in w.get('b') or [])} | Auto-delete: {fmt_s(w.get('ad', 0))}</blockquote>\n"
     else:
         t += "<blockquote>No welcome message set yet.</blockquote>\n"
-    t += ("\n<blockquote>"
-          "Tap <b>✏️ Set / change</b>, then send me the welcome.\n"
-          f"Variables: <code>{WEL_VARS}</code>\n"
-          "Buttons: <code>[Join](buttonurl:https://t.me/x)</code>"
-          "</blockquote>")
-    rows = [[B("✏️ Set / change", callback_data=f"wl:{g}:set")]]
+    t += ("\n<blockquote>Tap <b>✏️ Set / change</b>, then send me the welcome.\n"
+          f"Variables: <code>{WEL_VARS}</code>\nButtons: <code>[Join](buttonurl:https://t.me/x)</code> (add <code>:same</code> <code>:red</code> <code>:green</code> <code>:blue</code>)</blockquote>")
+    rows = [[R("✏️ Set / change", cb=f"wl:{g}:set", s=BTN_COLOR["set"])]]
     if has:
-        rows += [[B("👁 Preview", callback_data=f"wl:{g}:prev"), B("🔛 ON / OFF", callback_data=f"wl:{g}:tog")],
-                 [B(f"⏱ Auto-delete: {fmt_s(w.get('ad', 0))}", callback_data=f"wl:{g}:ad"), B("🗑 Remove", callback_data=f"wl:{g}:rm")]]
-    return t, M(rows)
+        rows += [[R("👁 Preview", cb=f"wl:{g}:prev"), R("🔛 ON / OFF", cb=f"wl:{g}:tog")],
+                 [R(f"⏱ Auto-delete: {fmt_s(w.get('ad', 0))}", cb=f"wl:{g}:ad"), R("🗑 Remove", cb=f"wl:{g}:rm", s=BTN_COLOR["delete"])]]
+    return t, rows
 
 @app.on_message(filters.command("setwel"))
 async def setwel(c, m):
     if m.chat.type in GRP:
         await think(c, m)
-        return await ship(c, m, "<b>👋 WELCOME EDITOR</b>\n\n<blockquote>Set the welcome message in my PM 👇</blockquote>", reply_markup=M([[B("Open PM", url=f"https://t.me/{c.me.username}?start=setwel")]]))
+        return await ship(c, m, "<b>👋 WELCOME EDITOR</b>\n\n<blockquote>Set the welcome message in my PM 👇</blockquote>",
+                          [[R("Open PM", url=f"https://t.me/{c.me.username}?start=setwel", s="primary")]])
     g = await target(c, m)
     if g is None: return
     await think(c, m)
-    txt, kb = await wel_view(c, g)
-    await ship(c, m, txt, reply_markup=kb)
+    txt, rows = await wel_view(c, g)
+    await ship(c, m, txt, rows)
 
 @app.on_callback_query(filters.regex(r"^wl:"))
 async def wel_cb(c, q):
@@ -883,10 +925,9 @@ async def wel_cb(c, q):
         await qanim(q)
         PEND[q.from_user.id] = g
         await q.answer()
-        await q.message.reply_text("<b>✏️ EDITING</b>\n\n<blockquote>Send me the new welcome message now - text, or a photo/video/GIF with a caption.\n"
-                                   "Buttons: <code>[Name](buttonurl:https://...)</code>\nSend /cancel to stop.</blockquote>")
-        txt, kb = await wel_view(c, g)
-        try: await q.message.edit_text(txt, reply_markup=kb)
+        await q.message.reply_text("<b>✏️ EDITING</b>\n\n<blockquote>Send me the new welcome message now - text, or a photo/video/GIF with a caption.\nButtons: <code>[Name](buttonurl:https://...)</code>\nSend /cancel to stop.</blockquote>")
+        txt, rows = await wel_view(c, g)
+        try: await ui_edit(q.message.chat.id, q.message.id, txt, rows)
         except Exception: pass
         return
     if a == "prev":
@@ -895,8 +936,8 @@ async def wel_cb(c, q):
              "ft": w.get("ft"), "fid": w.get("fid"), "b": w.get("b")}
         await q.answer()
         await send(c, q.message, d)
-        txt, kb = await wel_view(c, g)
-        try: await q.message.edit_text(txt, reply_markup=kb)
+        txt, rows = await wel_view(c, g)
+        try: await ui_edit(q.message.chat.id, q.message.id, txt, rows)
         except Exception: pass
         return
     await qanim(q)
@@ -906,8 +947,8 @@ async def wel_cb(c, q):
         cur = w.get("ad", 0)
         await wc.update_one({"_id": g}, {"$set": {"ad": WS[(WS.index(cur) + 1) % len(WS)] if cur in WS else 0}}, upsert=True)
     await q.answer()
-    txt, kb = await wel_view(c, g)
-    try: await q.message.edit_text(txt, reply_markup=kb)
+    txt, rows = await wel_view(c, g)
+    try: await ui_edit(q.message.chat.id, q.message.id, txt, rows)
     except Exception: pass
 
 async def _pend(_, __, m): return bool(m.from_user) and m.from_user.id in PEND
@@ -932,8 +973,9 @@ async def wel_capture(c, m):
     if not t and not fid: PEND[uid] = g; return await m.reply_text("<b>❌ INVALID INPUT</b>\n\n<blockquote>Send text, or media with a caption.</blockquote>")
     if fid and ft not in ("sticker", "video_note") and len(t) > 1024: PEND[uid] = g; return await m.reply_text("<b>❌ TOO LONG</b>\n\n<blockquote>Caption max is 1024 characters - send a shorter one.</blockquote>")
     await wc.update_one({"_id": g}, {"$set": {"t": t, "ft": ft, "fid": fid, "b": b, "on": True}}, upsert=True)
-    txt, kb2 = await wel_view(c, g)
-    await m.reply_text("<b>✅ SAVED</b>\n\n<blockquote>Welcome message saved!</blockquote>\n\n" + txt, reply_markup=kb2)
+    txt, rows = await wel_view(c, g)
+    await m.reply_text("<b>✅ SAVED</b>\n\n<blockquote>Welcome message saved!</blockquote>")
+    await ui_send(c, m.chat.id, txt, rows, reply_id=m.id)
     m.stop_propagation()
 
 async def later(c, g, mid, secs):
@@ -951,7 +993,7 @@ async def welcome(c, m):
     await c.send_chat_action(g, ChatAction.TYPING)
     d = {"t": await wel_text(c, w.get("t"), users, m.chat), "ft": w.get("ft"), "fid": w.get("fid"), "b": w.get("b")}
     r = await send(c, m, d)
-    if r and w.get("ad"): asyncio.create_task(later(c, g, getattr(r, "id", r), w["ad"]))
+    if r and w.get("ad"): asyncio.create_task(later(c, g, r if isinstance(r, int) else getattr(r, "id", r), w["ad"]))
 
 async def kws(g):
     if g not in KW:
@@ -975,7 +1017,6 @@ async def listen(c, m):
             d = await fl.find_one({"g": g, "k": k})
             if d:
                 await c.send_chat_action(g, ChatAction.TYPING)
-                # Show "finding..." animation before sending the filter
                 loader = await c.send_message(g, "<b><i>ꜰɪɴᴅɪɴɢ...</i></b>", reply_to_message_id=m.id)
                 await asyncio.sleep(0.8)
                 try: await loader.delete()
@@ -996,16 +1037,17 @@ async def tracker(c, u):
 async def bsend(msg, cid):
     for _ in range(2):
         try: await msg.copy(cid); return True
-        except FloodWait as e: await asyncio.sleep(e.value + 1)
-        except (ChannelPrivate, ChatWriteForbidden, UserNotParticipant): await ch.delete_one({"_id": cid}); return False
-        except Exception: return False
+        except Exception as e:
+            if type(e).__name__ == "FloodWait": await asyncio.sleep(e.value + 1); continue
+            if type(e).__name__ in ("ChannelPrivate", "ChatWriteForbidden", "UserNotParticipant"): await ch.delete_one({"_id": cid}); return False
+            return False
     return False
 
 @app.on_message(filters.command("broadcast"))
 async def broadcast(c, m):
     if not (m.from_user and sudo(m.from_user.id)): return
     if not m.reply_to_message: return await m.reply_text("<b>❌ REPLY MISSING</b>\n\n<blockquote>Reply to the message you want to broadcast with /broadcast</blockquote>")
-    s = await think(c, m, "ʙʀᴏᴀᴄᴀsᴛɴɢ", ttl=3600)
+    s = await think(c, m, "ʙʀᴏᴀᴅᴄᴀsᴛɪɴɢ", ttl=3600)
     ids = [d["_id"] async for d in ch.find()]
     ok = 0
     for i in ids:
@@ -1013,7 +1055,7 @@ async def broadcast(c, m):
         await asyncio.sleep(0.3)
     LD.pop((m.chat.id, m.from_user.id), None)
     if s:
-        try: await s.edit_text(f"<b>✅ DONE</b>\n\n<blockquote>Broadcast done: ✅ {ok} sent, ❌ {len(ids) - ok} failed.</blockquote>")
+        try: await ui_edit(m.chat.id, s.id, f"<b>✅ DONE</b>\n\n<blockquote>Broadcast done: ✅ {ok} sent, ❌ {len(ids) - ok} failed.</blockquote>")
         except Exception: pass
 
 @app.on_message(filters.command("stats"))
