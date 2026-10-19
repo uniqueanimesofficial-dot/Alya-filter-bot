@@ -21,7 +21,8 @@ app = Client("fb", api_id=API_ID, api_hash=API_HASH, bot_token=TOKEN, parse_mode
 GRP = (T.GROUP, T.SUPERGROUP)
 MEDIA = ("photo", "video", "animation", "document", "audio", "voice", "video_note", "sticker")
 KW, LINK, ADMINS, SEEN = {}, set(), set(), set()
-BTN, TAG = re.compile(r"\[(.+?)\]\(buttonurl:(.+?)(:same)?\)"), re.compile(r"<[^>]+>")
+BTN, TAG = re.compile(r"\[(.+?)\]\(buttonurl:(.+?)((?::(?:same|red|green|blue))*)\)"), re.compile(r"<[^>]+>")
+STY = {"red": "danger", "green": "success", "blue": "primary"}  # Telegram button styles
 plain = lambda s: html.unescape(TAG.sub("", s)).strip()
 
 HELP = """<b>Filter Bot</b>
@@ -30,7 +31,9 @@ HELP = """<b>Filter Bot</b>
 /filter "two words" text - text filter
 /filters - list | /del word - delete | /delall - delete all (owner)
 /antilink on|off - delete links from members
-Buttons: <code>[Name](buttonurl:https://x.com)</code> (add <code>:same</code> after the url for same row)
+Reply to a post (media + buttons) with <code>/filter any words</code> - media, caption and buttons are copied
+Buttons: <code>[Name](buttonurl:https://x.com)</code> - add after the url: <code>:same</code> (same row), <code>:red</code> <code>:green</code> <code>:blue</code> (colour)
+/color word red green - set button colours of a saved filter (Telegram can't pass colours when copying)
 /connect (in group) or /connect -100id (in PM) | /connections | /disconnect
 <b>Bot owner/admins</b>
 /broadcast (reply) - send to all groups &amp; channels | /stats
@@ -43,8 +46,11 @@ def parse(t):
         lb, url = plain(m[1]), plain(m[2])
         if url.lower().startswith("t.me/"): url = "https://" + url
         if not lb or not url.lower().startswith(("http://", "https://", "tg://")): continue
+        o = m[3].split(":")
         b = {"text": lb, "url": url}
-        if m[3] and rows: rows[-1].append(b)
+        for x in o:
+            if x in STY: b["s"] = STY[x]
+        if "same" in o and rows: rows[-1].append(b)
         else: rows.append([b])
     return BTN.sub("", t or "").strip(), rows
 
@@ -96,7 +102,29 @@ async def conn_set(u, g, add=True):
     await cn.update_one({"_id": u}, {"$set": {"groups": gs, "active": act}}, upsert=True)
 
 
+async def api_send(chat, reply_id, d):
+    """Send via the Bot API over HTTPS - needed for coloured buttons (Pyrogram 2.0.x can't send `style`)."""
+    ft = d.get("ft")
+    kb = [[{k: v for k, v in (("text", b["text"]), ("url", b["url"]), ("style", b.get("s"))) if v} for b in r] for r in d["b"]]
+    pl = {"chat_id": chat, "reply_parameters": {"message_id": reply_id, "allow_sending_without_reply": True},
+          "reply_markup": {"inline_keyboard": kb}}
+    if ft:
+        pl[ft] = d["fid"]
+        if ft not in ("sticker", "video_note") and d.get("t"): pl["caption"], pl["parse_mode"] = d["t"], "HTML"
+        method = "send" + "".join(w.title() for w in ft.split("_"))
+    else:
+        pl.update(text=d.get("t") or ".", parse_mode="HTML", link_preview_options={"is_disabled": True})
+        method = "sendMessage"
+    async with ClientSession(timeout=ClientTimeout(total=30)) as s:
+        async with s.post(f"https://api.telegram.org/bot{TOKEN}/{method}", json=pl) as r:
+            j = await r.json()
+    if not j.get("ok"): raise RuntimeError(j.get("description"))
+
+
 async def send(c, m, d):
+    if any(b.get("s") for r in d.get("b") or [] for b in r):
+        try: return await api_send(m.chat.id, m.id, d)
+        except Exception as e: log.warning("coloured send failed (%s) - falling back to plain buttons", e)
     mk = M([[B(b["text"], url=b["url"]) for b in r] for r in d["b"]]) if d.get("b") else None
     ft, kw = d.get("ft"), dict(chat_id=m.chat.id, reply_to_message_id=m.id, reply_markup=mk)
     for _ in range(2):
@@ -127,16 +155,23 @@ async def add(c, m):
     g = await target(c, m)
     if g is None: return
     p = (m.text.html if m.text else "").split(None, 1)
-    k, rest = kwsplit(p[1] if len(p) > 1 else "")
-    if not k or len(k) > 64: return await m.reply_text("Usage: /filter word (reply to msg/media) or /filter word text")
-    t, b = parse(rest)
+    arg = p[1] if len(p) > 1 else ""
+    k, rest = kwsplit(arg)
     r, ft, fid = m.reply_to_message, None, None
+    if r and not arg.lstrip().startswith(('"', "&quot;", "“")):
+        k, rest = plain(arg).lower(), ""  # replying: everything after /filter is the keyword (multi-word OK)
+    if not k or len(k) > 64: return await m.reply_text("Usage: reply to a message with /filter keyword\nor /filter word text")
+    t, b = parse(rest)
     if r:
         for x in MEDIA:
             if getattr(r, x, None): ft, fid = x, getattr(r, x).file_id; break
         body = r.text or r.caption
         bt, bb = parse(body.html if body else "")
         t, b = bt or t, bb + b
+        kb = getattr(r.reply_markup, "inline_keyboard", None)  # copy the real inline buttons of the replied message
+        if kb:
+            rows = [[{"text": x.text, "url": x.url} for x in row if getattr(x, "url", None)] for row in kb]
+            b = [row for row in rows if row] + b
     if not t and not fid: return await m.reply_text("Reply to a message/media or add some text.")
     if fid and len(t) > 1024: return await m.reply_text("Caption max is 1024 characters.")
     await fl.update_one({"g": g, "k": k}, {"$set": {"t": t, "ft": ft, "fid": fid, "b": b}}, upsert=True)
@@ -180,6 +215,28 @@ async def delall_cb(c, q):
 
 
 # ----------------------------------------------------------- connections
+@app.on_message(filters.command("color"))
+async def color(c, m):
+    """/color keyword red green blue none ... -> colour of each button of a filter, in order."""
+    g = await target(c, m)
+    if g is None: return
+    p = (m.text.html or "").split(None, 1)
+    k, rest = kwsplit(p[1] if len(p) > 1 else "")
+    cols = rest.lower().replace(",", " ").split()
+    d = await fl.find_one({"g": g, "k": k}) if k else None
+    if not k or not cols: return await m.reply_text('Usage: /color keyword red green blue none\n(one colour per button, in order; use quotes for multi-word keywords: <code>/color "my word" red green</code>)')
+    if not d or not d.get("b"): return await m.reply_text("No such filter, or it has no buttons.")
+    i = 0
+    for row in d["b"]:
+        for b in row:
+            col = cols[i] if i < len(cols) else None
+            i += 1
+            if col in STY: b["s"] = STY[col]
+            else: b.pop("s", None)
+    await fl.update_one({"g": g, "k": k}, {"$set": {"b": d["b"]}})
+    await m.reply_text(f"Button colours updated for <code>{k}</code>.")
+
+
 @app.on_message(filters.command("connect"))
 async def connect(c, m):
     if not m.from_user: return
