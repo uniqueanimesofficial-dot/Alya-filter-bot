@@ -62,10 +62,10 @@ def kwsplit(s):
 def sudo(u): return u == OWNER or u in ADMINS
 
 
-async def is_adm(c, cid, uid, owner=False):
+async def is_adm(c, cid, uid, owner=False, trust=False):
     if sudo(uid): return True
     try: m = await c.get_chat_member(cid, uid)
-    except Exception: return False
+    except Exception: return trust  # trust=True: group unreachable right now (e.g. after restart) -> rely on saved connection
     return m.status in ((S.OWNER,) if owner else (S.OWNER, S.ADMINISTRATOR))
 
 
@@ -78,7 +78,7 @@ async def target(c, m, owner=False):
         if not g:
             await m.reply_text("Not connected. Send /connect in your group, or /connect -100id here.")
             return None
-    if await is_adm(c, g, u, owner): return g
+    if await is_adm(c, g, u, owner, trust=(m.chat.type not in GRP and not owner)): return g
     await m.reply_text("Only the group owner can do this." if owner else "Admins only.")
     return None
 
@@ -186,10 +186,14 @@ async def connect(c, m):
     u = m.from_user.id
     if m.chat.type in GRP: g = m.chat.id
     else:
-        try:
-            g = int(m.command[1]); await c.get_chat(g)
-        except Exception: return await m.reply_text("Usage: /connect -100id (I must be in that group)")
-    if not await is_adm(c, g, u): return await m.reply_text("You must be an admin there.")
+        if len(m.command) < 2:
+            return await m.reply_text("Best way: send /connect <b>inside your group</b>.\nOr here: <code>/connect -100xxxxxxxxxx</code>")
+        try: g = int(m.command[1])
+        except ValueError: return await m.reply_text("The group id must be a number like <code>-1001234567890</code>.")
+        try: await c.get_chat(g)
+        except Exception as e:
+            return await m.reply_text(f"I can't reach that group ({type(e).__name__}).\nMake sure I'm added to it, then send /connect <b>inside the group</b> instead.")
+    if not await is_adm(c, g, u): return await m.reply_text("You must be an admin of that group to connect it.")
     await conn_set(u, g)
     await m.reply_text(f"Connected to <b>{await title(c, g)}</b>. Manage filters from my PM.")
 
