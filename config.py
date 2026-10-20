@@ -30,7 +30,7 @@ START_IMGS = [
 ]
 
 # Emojis that cycle during the /start animation
-LOAD_EMOJIS = ["⚙️", "🔄", "⏳", "✨"]
+LOAD_EMOJIS = ["⚡️"]
 
 # Chance (0.0 - 1.0) that the small "wait a sec..." loading animation is shown
 # on commands / button taps. The /start "starting" animation always plays.
@@ -38,7 +38,7 @@ ANIM_CHANCE = 0.35
 
 # Live (animated) reaction put on a plain /start message - one is picked at random.
 # Must be emojis Telegram allows as reactions. Leave empty [] to turn off.
-START_REACTIONS = ["🔥", "❤", "⚡", "🎉", "🥰", "😍", "👍"]
+START_REACTIONS = ["🔥", "❤", "🎉", "🥰", "😍", "👍"]
 
 #  Button Colours: "red" | "green" | "blue" | "" (default/transparent)
 BTN_COLOR = {
@@ -79,7 +79,8 @@ PREMIUM_EMOJIS = {
     "Antiforward":("5447434637880098257", "↪️"),
     "pencil":("5445128296276718145", "✏️"),
     "flood":("5445358884480916784", "🌊"),
-    "block":("5208579781288808848", "⛔")
+    "block":("5208579781288808848", "⛔"),
+    "start":("5350427505805238170", "⚡️")
     
 }
 
