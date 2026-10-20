@@ -1092,7 +1092,7 @@ async def cancel(c, m):
     PEND.pop(m.from_user.id, None)
     await ship(c, m, f"<b>❌ {smallcaps('cancelled')}</b>")
 
-@app.on_message(filters.private & pend & \~filters.regex(r"^/"), group=2)
+@app.on_message(filters.private & pend & ~filters.regex(r"^/"), group=2)
 async def wel_capture(c, m):
     uid = m.from_user.id; g = PEND.pop(uid)
     ft = fid = None
