@@ -37,12 +37,12 @@ LOAD_EMOJIS = ["⚙️", "🔄", "⏳", "✨"]
 # 🎨 Button Colours: "red" | "green" | "blue" | "" (default/transparent)
 BTN_COLOR = {
     "letters": "",        # ᴀ ʟ ʏ ᴀ letter buttons
-    "add_group": "green", # ADD ME TO YOUR GROUP
-    "commands": "blue",   # COMMANDS
-    "settings": "blue",   # SETTINGS
-    "connections": "blue",# CONNECTIONS
-    "about": "blue",      # ABOUT
-    "back": "red",        # ◀ BACK buttons
+    "add_group": "green", # ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ɢʀᴏᴜᴘ
+    "commands": "blue",   # ᴄᴏᴍᴍᴀɴᴅs
+    "settings": "blue",   # sᴇᴛᴛɪɴɢs
+    "connections": "blue",# ᴄᴏɴɴᴇᴄᴛɪᴏɴs
+    "about": "blue",      # ᴀʙᴏᴜᴛ
+    "back": "red",        # ◀ ʙᴀᴄᴋ buttons
     "delete": "red",      # 🗑 delete buttons
     "set": "blue",        # ✏️ Set / change buttons
 }
@@ -66,32 +66,32 @@ PREMIUM_EMOJIS = {
 # ==========================================
 #  📜 HELP MENU TEXT
 # ==========================================
-HELP_TEXT = """<b>🤖 Filter Bot</b>
+HELP_TEXT = """<b>🤖 ꜰɪʟᴛᴇʀ ʙᴏᴛ</b>
 
 <blockquote>
-<b>👥 Admins</b> (group, or PM after /connect)
-• <code>/filter</code> word - reply to a msg/media to save it
-• <code>/filter</code> "two words" text - text filter
-• <code>/filters</code> - list with 🗑 delete buttons
-• <code>/settings</code> - protection panel (anti-link, flood, etc.)
-• <code>/allowlink</code> domain.com - links that anti-link ignores
-• <code>/warn</code> (reply) reason | <code>/unwarn</code> | <code>/warns</code>
-• <code>/setwel</code> - welcome message editor (PM only)
+<b>👥 ᴀᴅᴍɪɴs</b> (ɢʀᴏᴜᴘ, ᴏʀ ᴘᴍ ᴀꜰᴛᴇʀ /connect)
+• <code>/filter</code> ᴡᴏʀᴅ - ʀᴇᴘʟʏ ᴛᴏ ᴀ ᴍsɢ/ᴍᴇᴅɪᴀ ᴛᴏ sᴀᴠᴇ ɪᴛ
+• <code>/filter</code> "two words" ᴛᴇxᴛ - ᴛᴇxᴛ ꜰɪʟᴛᴇʀ
+• <code>/filters</code> - ʟɪsᴛ ᴡɪᴛʜ 🗑 ᴅᴇʟᴇᴛᴇ ʙᴜᴛᴛᴏɴs
+• <code>/settings</code> - ᴘʀᴏᴛᴇᴄᴛɪᴏɴ ᴘᴀɴᴇʟ (ᴀɴᴛɪ-ʟɪɴᴋ, ꜰʟᴏᴏᴅ, ᴇᴛᴄ.)
+• <code>/allowlink</code> domain.com - ʟɪɴᴋs ᴛʜᴀᴛ ᴀɴᴛɪ-ʟɪɴᴋ ɪɢɴᴏʀᴇs
+• <code>/warn</code> (ʀᴇᴘʟʏ) ʀᴇᴀsᴏɴ | <code>/unwarn</code> | <code>/warns</code>
+• <code>/setwel</code> - ᴡᴇʟᴄᴏᴍᴇ ᴍᴇssᴀɢᴇ ᴇᴅɪᴛᴏʀ (ᴘᴍ ᴏɴʟʏ)
 </blockquote>
 
 <blockquote>
-<b>⚙️ Filter modes &amp; Buttons</b>
-• <code>regex:^hi</code> or <code>contains:price</code> (default = whole word)
-• Reply to a post (media + buttons) with <code>/filter any words</code>
-• Buttons: <code>[Name](buttonurl:https://x.com)</code>
-  Add <code>:same</code> (same row), <code>:red</code> <code>:green</code> <code>:blue</code>
-• <code>/color</code> word red green - set button colours
+<b>⚙️ ꜰɪʟᴛᴇʀ ᴍᴏᴅᴇs &amp; ʙᴜᴛᴛᴏɴs</b>
+• <code>regex:^hi</code> ᴏʀ <code>contains:price</code> (ᴅᴇꜰᴀᴜʟᴛ = ᴡʜᴏʟᴇ ᴡᴏʀᴅ)
+• ʀᴇᴘʟʏ ᴛᴏ ᴀ ᴘᴏsᴛ (ᴍᴇᴅɪᴀ + ʙᴜᴛᴛᴏɴs) ᴡɪᴛʜ <code>/filter any words</code>
+• ʙᴜᴛᴛᴏɴs: <code>[Name](buttonurl:https://x.com)</code>
+  ᴀᴅᴅ <code>:same</code> (sᴀᴍᴇ ʀᴏᴡ), <code>:red</code> <code>:green</code> <code>:blue</code>
+• <code>/color</code> ᴡᴏʀᴅ ʀᴇᴅ ɢʀᴇᴇɴ - sᴇᴛ ʙᴜᴛᴛᴏɴ ᴄᴏʟᴏᴜʀs
 </blockquote>
 
 <blockquote>
-<b>👑 Bot Owner / Admins</b>
-• <code>/broadcast</code> (reply) | <code>/stats</code> | <code>/addadmin</code> id | <code>/rmadmin</code> id
-• <code>/info</code> - view user info
+<b>👑 ʙᴏᴛ ᴏᴡɴᴇʀ / ᴀᴅᴍɪɴs</b>
+• <code>/broadcast</code> (ʀᴇᴘʟʏ) | <code>/stats</code> | <code>/addadmin</code> ɪᴅ | <code>/rmadmin</code> ɪᴅ
+• <code>/info</code> - ᴠɪᴇᴡ ᴜsᴇʀ ɪɴꜰᴏ
 </blockquote>
 """
 
