@@ -25,10 +25,10 @@ MAINTAINER_URL = "https://t.me/PrimeCoreHQ"
 
 # Start menu images (Direct URLs for preview mode, or Telegram File IDs)
 START_IMGS = [
-    "https://files.catbox.moe/sla8rd.jpg",
-    "https://files.catbox.moe/9tqcsy.jpg",
-    "https://files.catbox.moe/t3c8bc.jpg",
-    "https://files.catbox.moe/xh6fdc.jpg",
+    "https://i.ibb.co/tM1fHz1g/WLlz5wpd.jpg",
+    "https://i.ibb.co/JFM7ptss/uq-X5-CAUy.jpg",
+    "https://i.ibb.co/Bvg3P2t/NJk-Mma6j.jpg",
+    "https://i.ibb.co/237ZFmGc/c-VVvvq-Pc.jpg",
 ]
 
 # Emojis that cycle during the /start animation
