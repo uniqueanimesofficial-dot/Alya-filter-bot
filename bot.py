@@ -38,7 +38,9 @@ def smallcaps(s):
     if not SCON.get(): return s or ""
     return "".join(SC.get(ch, ch) for ch in (s or "").lower())
 def is_url(img): return img.startswith("http")
-def sty(w): return STY.get((w or "").lower()) or None
+def sty(w):
+    w = (w or "").lower()
+    return STY.get(w) or (w if w in ("danger", "success", "primary") else None)
 
 def pe(name):
     """Helper to easily use Premium Emojis defined in config.py"""
@@ -491,6 +493,7 @@ async def conn_set(u, g, add=True):
     if add: gs.append(g)
     act = g if add else (d.get("active") if d.get("active") != g else (gs[-1] if gs else None))
     await cn.update_one({"_id": u}, {"$set": {"groups": gs, "active": act}}, upsert=True)
+    if not add: await ch.update_one({"_id": g, "conn": u}, {"$unset": {"conn": "", "conn_name": ""}})
 
 async def api_send(chat, reply_id, d):
     ft = d.get("ft")
@@ -806,9 +809,26 @@ async def connect(c, m):
             m2 = smallcaps("make sure i'm added to it, then send /connect inside the group instead.")
             return await reply(m, f"<b>❌ {smallcaps('unreachable')}</b>\n\n<blockquote>{m1} ({type(e).__name__}).\n{m2}</blockquote>")
     if not await is_adm(c, g, u): return await reply(m, f"<b>❌ {smallcaps('not admin')}</b>\n\n<blockquote>{smallcaps('you must be an admin of that group to connect it.')}</blockquote>")
+    first = (await ch.find_one({"_id": g}) or {})
+    fu = first.get("conn")
+    if not fu:                                          # connections made before this rule existed
+        o = await cn.find_one({"groups": g, "_id": {"$ne": u}})
+        if o:
+            fu = o["_id"]
+            try: first["conn_name"] = (await c.get_users(fu)).first_name
+            except Exception: pass
+    if fu and fu != u and not sudo(u) and await cn.find_one({"_id": fu, "groups": g}) and await is_adm(c, g, fu):
+        who = f'<a href="tg://user?id={fu}">{html.escape(first.get("conn_name") or str(fu))}</a>'
+        return await reply(m, f"<b>❌ {smallcaps('already connected')}</b>\n\n<blockquote>{smallcaps('this group is already connected by')} {who} ({smallcaps('first connected')}).\n{smallcaps('only they can manage it from pm. ask them to /disconnect first.')}</blockquote>")
     await think(c, m)
     if m.chat.type in GRP and m.chat.title: TITLES[g] = (m.chat.title, time.time()); await ch.update_one({"_id": g}, {"$set": {"title": m.chat.title}}, upsert=True)
     await conn_set(u, g)
+    await ch.update_one({"_id": g}, {"$set": {"conn": u, "conn_name": m.from_user.first_name or str(u)}}, upsert=True)
+    if m.chat.type in GRP:
+        try: await ui_send(u, f"<b>✅ {smallcaps('connected')}</b>\n\n<blockquote>{smallcaps('link alerts for')} <b>{html.escape(smallcaps(await title(c, g)))}</b> {smallcaps('will come here.')}</blockquote>")
+        except Exception:
+            bg(tmp(c, g, f"<b>🔔 {smallcaps('start me in pm')}</b>\n\n<blockquote>{m.from_user.mention}, {smallcaps('press start in my pm to receive link alerts and manage filters.')}</blockquote>", 45,
+                   [[R(smallcaps("open pm"), url=f"https://t.me/{c.me.username}?start=alerts", s="primary")]]))
     await ship(c, m, f"<b>✅ {smallcaps('connected')}</b>\n\n<blockquote>{smallcaps('connected to')} <b>{html.escape(smallcaps(await title(c, g)))}</b>. {smallcaps('manage filters from my pm.')}</blockquote>")
 
 @app.on_message(filters.command("disconnect"))
@@ -880,6 +900,7 @@ def st_kb(g, cf):
             [b(f"@ {smallcaps('anti-mention')}", "am"), b(f"🌊 {smallcaps('flood')}", "fd")],
             [b(f"⚠️ {smallcaps('auto-warn')}", "aw"), b(f"🧪 {smallcaps('test mode')}", "tm")],
             [R(f"🧹 {smallcaps('delete join/leave msgs')} {'⛔' if cf.get('nds') else '✅'}", cb=f"st:{g}:nds", s="red" if cf.get("nds") else "green")],
+            [R(f"💬 {smallcaps('strict chat matching')} {'⛔' if cf.get('loose') else '✅'}", cb=f"st:{g}:loose", s="red" if cf.get("loose") else "green")],
             [R(f"🔤 {smallcaps('small caps')} {'⛔' if cf.get('nsc') else '✅'}", cb=f"st:{g}:nsc", s="red" if cf.get("nsc") else "green")],
             [R("➖", cb=f"st:{g}:w-"), R(f"{smallcaps('warn limit')}: {cf.get('wl', 3)}", cb=f"st:{g}:w0"), R("➕", cb=f"st:{g}:w+")],
             [R(f"{smallcaps('warn action')}: {smallcaps(cf.get('wa', 'mute'))}", cb=f"st:{g}:wa")]]
@@ -899,7 +920,7 @@ async def st_cb(c, q):
     if not await can(c, q, g): return await q.answer(smallcaps("admins only."), show_alert=True)
     await qanim(q)
     cf = await cfg(g)
-    if k in ("al", "af", "am", "fd", "aw", "tm", "nsc", "nds"): await cfg_set(g, **{k: not cf.get(k)})
+    if k in ("al", "af", "am", "fd", "aw", "tm", "nsc", "nds", "loose"): await cfg_set(g, **{k: not cf.get(k)})
     if k == "nsc" and q.message.chat.type in GRP: SCON.set(not cf.get("nsc"))
     elif k in ("w+", "w-"): await cfg_set(g, wl=max(2, min(10, cf.get("wl", 3) + (1 if k == "w+" else -1))))
     elif k == "wa": await cfg_set(g, wa={"mute": "kick", "kick": "ban"}.get(cf.get("wa", "mute"), "mute"))
@@ -1085,7 +1106,7 @@ def links_of(m):
         except Exception: pass
     return list(dict.fromkeys(out)) or re.findall(r"(?:https?://|t\.me/|www\.)\S+", txt)
 
-ADMC = {}
+ADMC, NUDGE = {}, {}
 async def gc_admins(c, g):
     """human admins of the group (cached 10 min) + bot owner/admins + users who /connect-ed it"""
     t = ADMC.get(g)
@@ -1101,7 +1122,8 @@ async def gc_admins(c, g):
     ids.update([d["_id"] async for d in cn.find({"groups": g})])          # who /connect-ed this group
     by = (await ch.find_one({"_id": g}) or {}).get("by")                   # who added the bot to it
     if by: ids.add(by)
-    return ids
+    pri = {d["_id"] async for d in cn.find({"groups": g})} | ({by} if by else set())
+    return ids, pri
 
 async def report(c, g, m, found):
     u = m.from_user
@@ -1117,24 +1139,30 @@ async def report(c, g, m, found):
             f"<b>{smallcaps('premium')}:</b> {smallcaps('yes') if u.is_premium else smallcaps('no')}\n"
             f"<b>{smallcaps('links sent here')}:</b> {r['n']} | <b>{smallcaps('warnings')}:</b> {warns}</blockquote>\n"
             f"<blockquote><b>{smallcaps('link(s)')}:</b>\n{ls}\n\n<b>{smallcaps('message')}:</b>\n{body}</blockquote>")
-    rows = [[R(f"🔇 {smallcaps('mute')}", cb=f"lk:m:{g}:{u.id}", s="primary"), R(f"🚫 {smallcaps('ban')}", cb=f"lk:b:{g}:{u.id}", s="danger")],
+    rows = [[R(f"🚫 {smallcaps('block')}", cb=f"lk:b:{g}:{u.id}", s="danger"), R(f"🔇 {smallcaps('mute')}", cb=f"lk:m:{g}:{u.id}", s="primary")],
+            [R(f"👢 {smallcaps('kick')}", cb=f"lk:k:{g}:{u.id}", s="success"), R(f"❌ {smallcaps('cancel')}", cb=f"lk:x:{g}:{u.id}")],
             [R(f"👤 {smallcaps('open profile')}", url=f"tg://user?id={u.id}")]]
-    sent, ids = 0, await gc_admins(c, g)
+    sent, (ids, pri), failed = 0, await gc_admins(c, g), []
     for uid in ids:
         try: await ui_send(uid, text, rows); sent += 1
-        except Exception as e: log.warning("link report: cannot PM %s (%s) - that person must press Start in my PM", uid, e)
+        except Exception as e:
+            log.warning("link report: cannot PM %s (%s) - that person must press Start in my PM", uid, e)
+            if uid in pri: failed.append(uid)
     log.info("link report for %s in %s sent to %s of %s people", u.id, g, sent, len(ids))
-    if not sent:
-        bg(tmp(c, g, f"<b>⚠️ {smallcaps('alert not delivered')}</b>\n\n<blockquote>{smallcaps('i could not pm any admin. admins must open my pm and press start, then use /connect in this group.')}</blockquote>", 30))
 
 @cbq(r"^lk:")
 async def lk_cb(c, q):
     _, a, g, u = q.data.split(":"); g, u = int(g), int(u)
     if not await is_adm(c, g, q.from_user.id, trust=True): return await q.answer(smallcaps("admins only."), show_alert=True)
+    if a == "x":
+        await q.answer(smallcaps("cancelled"))
+        return await q.message.delete()
     try:
         if a == "m": await c.restrict_chat_member(g, u, ChatPermissions())
-        else: await c.ban_chat_member(g, u)
-        res = smallcaps("muted") if a == "m" else smallcaps("banned")
+        else:
+            await c.ban_chat_member(g, u)
+            if a == "k": await c.unban_chat_member(g, u)
+        res = {"m": smallcaps("muted"), "b": smallcaps("blocked"), "k": smallcaps("kicked")}[a]
     except Exception as e:
         return await q.answer(smallcaps("failed - i need the 'restrict members' right."), show_alert=True)
     await q.answer(res)
@@ -1327,7 +1355,7 @@ async def kws(g):
 
 def hit(k, mt, txt):
     try:
-        if mt == "contains": return k in txt.lower()
+        if mt == "contains": return k.lower() in txt.lower()
         if mt == "regex": return re.search(k, txt, re.I) is not None
         return re.search(rf"(?<!\w){re.escape(k)}(?!\w)", txt, re.I) is not None
     except re.error: return False
@@ -1356,21 +1384,82 @@ def close_matches(txt, ks, n=5):
         if sc: out.append((sc, k))
     return [k for _, k in sorted(out, key=lambda x: (-x[0], x[1]))[:n]]
 
+def nrm(t): return " ".join(re.sub(r"[^\w\s]", " ", (t or "").lower()).split())
+
+def search_keys(q, ks, n=8):
+    """every non-regex filter that shares words with the query, best first"""
+    nq, mt, out = nrm(q), set(toks(q)), []
+    for k, kind in ks:
+        if kind == "regex": continue
+        nk, kt, sc = nrm(k), set(toks(k)), 0
+        if mt & kt:
+            sc = 1 + len(mt & kt) / len(mt | kt)
+            if mt <= kt or kt <= mt: sc += 2
+        if nq and (nq in nk or nk in nq): sc = max(sc, 2.5)
+        r = difflib.SequenceMatcher(None, nq, nk).ratio()
+        if r >= 0.6: sc = max(sc, r)
+        if sc: out.append((sc, k))
+    return [k for _, k in sorted(out, key=lambda x: (-x[0], x[1]))[:n]]
+
 SUG = {}
-async def suggest(c, m, g):
-    u = m.from_user
-    if not u: return
-    now = time.time()
-    if now - SUG.get((g, u.id), 0) < 20: return
-    ks = close_matches(m.text, await kws(g))
-    if not ks: return
-    SUG[(g, u.id)] = now
-    if len(SUG) > 2000: SUG.clear()
+async def show_buttons(c, m, g, ks, head="did you mean", ttl=60):
     rows = [[R(k[:40], cb=f"fm:{g}:{kh(k)}:{m.id}", s="primary")] for k in ks]
     try:
-        mid = await ui_send(g, f"<b>🔎 {smallcaps('did you mean')}</b>\n\n<blockquote>{smallcaps('tap the one you want and i will send it.')}</blockquote>", rows, reply_id=m.id)
-        asyncio.create_task(_ttl(CQMsg(g, m.chat.type, mid), 60))
+        mid = await ui_send(m.chat.id, f"<b>🔎 {smallcaps(head)}</b>\n\n<blockquote>{smallcaps('tap the one you want and i will send it.')}</blockquote>", rows, reply_id=m.id)
+        bg(_ttl(CQMsg(m.chat.id, m.chat.type, mid), ttl))
     except Exception as e: log.warning("suggest failed: %s", e)
+
+async def suggest(c, m, g, n, ks):
+    """chat mode: the message contains a keyword plus extra words (e.g. 'blue box s02') -> offer buttons"""
+    u = m.from_user
+    if not u or len(n.split()) > 8: return
+    mset = set(n.split())
+    cand = [k for k, mt in ks if mt == "word" and len(nrm(k)) >= 3 and set(nrm(k).split()) <= mset]
+    if not cand: return
+    now = time.time()
+    if now - SUG.get((g, u.id), 0) < 20: return
+    SUG[(g, u.id)] = now
+    if len(SUG) > 2000: SUG.clear()
+    await show_buttons(c, m, g, cand[:6])
+
+async def deliver(c, m, g, k, reply_id=None):
+    d = await fl.find_one({"g": g, "k": k})
+    if not d: return
+    rid = reply_id or (m.reply_to_message.id if m.reply_to_message else m.id)
+    try:
+        await c.send_chat_action(m.chat.id, ChatAction.TYPING)
+        if anim_roll():
+            loader = await ui_send(m.chat.id, f"<b><i>{smallcaps('finding...')}</i></b>", reply_id=m.id)
+            await asyncio.sleep(0.8)
+            await CQMsg(m.chat.id, m.chat.type, loader).delete()
+    except Exception: pass
+    await send(c, m, d, reply_id=rid)
+    u, lk = m.from_user, mlink(g, m.id, m.chat.username)
+    L("hit", f"<b>🎯 {smallcaps('filter triggered')}</b>\n\n<blockquote>{smallcaps('group')}: {html.escape(m.chat.title or str(g))} (<code>{g}</code>)\n{smallcaps('keyword')}: <code>{html.escape(k)}</code>\n"
+             f"{smallcaps('user')}: {u.mention + ' (<code>' + str(u.id) + '</code>)' if u else smallcaps('anonymous')}" + (f"\n<a href=\"{lk}\">{smallcaps('open message')}</a>" if lk else "") + "</blockquote>")
+
+@app.on_message(filters.command(["s", "search"]))
+async def search_cmd(c, m):
+    if not m.from_user: return
+    g = m.chat.id if m.chat.type in GRP else (await cn.find_one({"_id": m.from_user.id}) or {}).get("active")
+    if not g:
+        return await reply(m, f"<b>❌ {smallcaps('not connected')}</b>\n\n<blockquote>{smallcaps('send /connect in your group first.')}</blockquote>")
+    q = (m.text or "").split(None, 1)
+    q = q[1].strip() if len(q) > 1 else ""
+    if not q:
+        return await ship(c, m, f"<b>🔎 {smallcaps('search')}</b>\n\n<blockquote>{smallcaps('usage:')} <code>/s blue box</code></blockquote>")
+    await think(c, m)
+    ks, n = await kws(g), nrm(q)
+    exact = next((k for k, mt in ks if mt == "word" and nrm(k) == n), None)
+    if exact:
+        await clear_ld(c, m.chat.id, m.from_user.id)
+        return await deliver(c, m, g, exact, reply_id=m.id)
+    res = search_keys(q, ks)
+    await clear_ld(c, m.chat.id, m.from_user.id)
+    if not res:
+        mid = await reply(m, f"<b>📭 {smallcaps('no results')}</b>\n\n<blockquote>{smallcaps('nothing found for')} <code>{html.escape(q)}</code></blockquote>")
+        return bg(_ttl(CQMsg(m.chat.id, m.chat.type, mid), 20))
+    await show_buttons(c, m, g, res, "results", 120)
 
 @cbq(r"^fm:")
 async def fm_cb(c, q):
@@ -1381,7 +1470,7 @@ async def fm_cb(c, q):
     await q.answer()
     d = dict(d)
     if d.get("b"): d["b"] = apply_default(d["b"])
-    try: await api_send(g, int(mid), d)
+    try: await api_send(q.message.chat.id, int(mid), d)
     except Exception as e: log.warning("fm send failed: %s", e)
     await q.message.delete()
     L("hit", f"<b>🎯 {smallcaps('filter picked from suggestions')}</b>\n\n<blockquote>{smallcaps('group')}: <code>{g}</code>\n{smallcaps('keyword')}: <code>{html.escape(k)}</code>\n{smallcaps('user')}: {q.from_user.mention} (<code>{q.from_user.id}</code>)</blockquote>")
@@ -1391,25 +1480,17 @@ async def listen(c, m):
     g = m.chat.id
     if g not in SEEN:
         SEEN.add(g); await ch.update_one({"_id": g}, {"$set": {"type": "group"}}, upsert=True)
-    for k, mt in await kws(g):
-        if hit(k, mt, m.text):
-            d = await fl.find_one({"g": g, "k": k})
-            if d:
-                rid = m.reply_to_message.id if m.reply_to_message else m.id
-                try:
-                    await c.send_chat_action(g, ChatAction.TYPING)
-                    if anim_roll():
-                        loader = await ui_send(g, f"<b><i>{smallcaps('finding...')}</i></b>", reply_id=m.id)
-                        await asyncio.sleep(0.8)
-                        await CQMsg(g, m.chat.type, loader).delete()
-                except Exception: pass
-                await send(c, m, d, reply_id=rid)
-                u = m.from_user
-                lk = mlink(g, m.id, m.chat.username)
-                L("hit", f"<b>🎯 {smallcaps('filter triggered')}</b>\n\n<blockquote>{smallcaps('group')}: {html.escape(m.chat.title or '')} (<code>{g}</code>)\n{smallcaps('keyword')}: <code>{html.escape(k)}</code>\n"
-                         f"{smallcaps('user')}: {u.mention + ' (<code>' + str(u.id) + '</code>)' if u else smallcaps('anonymous')}" + (f"\n<a href=\"{lk}\">{smallcaps('open message')}</a>" if lk else "") + "</blockquote>")
-            return
-    await suggest(c, m, g)
+    ks, n = await kws(g), nrm(m.text)
+    if (await cfg(g)).get("loose"):                      # old behaviour: keyword anywhere in a message
+        for k, mt in ks:
+            if hit(k, mt, m.text): return await deliver(c, m, g, k)
+        cm = close_matches(m.text, ks)
+        if cm and m.from_user and time.time() - SUG.get((g, m.from_user.id), 0) > 20:
+            SUG[(g, m.from_user.id)] = time.time(); await show_buttons(c, m, g, cm)
+        return
+    for k, mt in ks:                                      # strict: the whole message must be the keyword
+        if (mt == "word" and nrm(k) == n) or (mt != "word" and hit(k, mt, m.text)): return await deliver(c, m, g, k)
+    await suggest(c, m, g, n, ks)
 
 @app.on_chat_member_updated()
 async def tracker(c, u):
