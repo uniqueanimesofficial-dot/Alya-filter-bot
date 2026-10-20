@@ -56,7 +56,7 @@ def start_txt(u):
             f"{maint_txt()}")
 
 def maint_txt():
-    return f'<blockquote>▶ <b>{smallcaps("maintained by")} :</b> <a href="{MAINTAINER_URL}">{MAINTAINER}</a> ❞</blockquote>'
+    return f'<blockquote>▶ <b>{smallcaps("maintained by")} :</b> <a href="{MAINTAINER_URL}"><b>{MAINTAINER}</a></blockquote></b>'
 
 # ------------------------------------------- raw Bot API layer
 def R(text, cb=None, url=None, s=None):
@@ -244,7 +244,7 @@ def sc_html(t):
     for n in range(0, len(parts), 2): parts[n] = smallcaps(parts[n])
     return "".join(parts)
 
-BACK = lambda: [[R(smallcaps("◀ back"), cb="sb:back", s=BTN_COLOR["back"])]]
+BACK = lambda: [[R(smallcaps("◀️ back"), cb="sb:back", s=BTN_COLOR["back"])]]
 
 # ------------------------- bulletproof start-screen sender
 async def send_start(c, chat, img, caption, kb, reply_id=None):
