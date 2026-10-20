@@ -44,18 +44,19 @@ def pe(name):
 
 def greet():
     h = datetime.now().hour
-    if 5 <= h < 12: return "ɢᴏᴏᴅ ᴍᴏʀɴɪɴɢ"
-    if 12 <= h < 17: return "ɢᴏᴏᴅ ᴀꜰᴛᴇʀɴᴏᴏɴ"
-    if 17 <= h < 22: return "ɢᴏᴏᴅ ᴇᴠᴇɴɪɴɢ"
-    return "ɢᴏᴏᴅ ɴɪɢʜᴛ"
+    if 5 <= h < 12: return smallcaps("good morning")
+    if 12 <= h < 17: return smallcaps("good afternoon")
+    if 17 <= h < 22: return smallcaps("good evening")
+    return smallcaps("good night")
 
 def start_txt(u):
-    return (f"ʜᴇʏ {smallcaps(u.first_name or 'friend')} ツ, {greet()} {pe('wave')}\n\n"
-            "ɪ ᴀᴍ ᴛʜᴇ ᴍᴏsᴛ ᴘᴏᴡᴇʀꜰᴜʟ ᴀᴜᴛᴏ ꜰɪʟᴛᴇʀ ʙᴏᴛ ᴡɪᴛʜ ᴘʀᴇᴍɪᴜᴍ ꜰᴇᴀᴛᴜʀᴇs, "
-            f"ᴊᴜsᴛ ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ɢʀᴏᴜᴘ ᴀɴᴅ ᴇɴᴊᴏʏ! {pe('fire')}\n\n"
-            f'<blockquote>▶ <b>ᴍᴀɪɴᴛᴀɪɴᴇᴅ ʙʏ :</b> <a href="{MAINTAINER_URL}">{MAINTAINER}</a> ❞</blockquote>')
+    # Using smallcaps() guarantees 100% correct spelling, no missing letters ever!
+    return (f"{smallcaps('hey')} {smallcaps(u.first_name or 'friend')} ツ, {greet()} {pe('wave')}\n\n"
+            f"{smallcaps('i am the most powerful auto filter bot with premium features,')}\n"
+            f"{smallcaps('just add me to your group and enjoy!')} {pe('fire')}\n\n"
+            f'<blockquote>▶ <b>{smallcaps("maintained by")} :</b> <a href="{MAINTAINER_URL}">{MAINTAINER}</a> ❞</blockquote>')
 
-# ------------------------------------------- raw Bot API layer (blockquote + colours + previews)
+# ------------------------------------------- raw Bot API layer
 def R(text, cb=None, url=None, s=None):
     b = {"text": text}
     if cb: b["callback_data"] = cb
@@ -89,6 +90,9 @@ def _lpo(preview):
     if preview: o.update(show_above_text=True, prefer_large_media=True)
     return o
 
+def _strip_pe(t):
+    return re.sub(r'<tg-emoji[^>]*>(.*?)</tg-emoji>', r'\1', t or "")
+
 async def ui_send(chat, text, rows=None, reply_id=None, preview=False):
     pl = {"chat_id": chat, "text": text, "parse_mode": "HTML", "link_preview_options": _lpo(preview)}
     if reply_id: pl["reply_parameters"] = {"message_id": reply_id, "allow_sending_without_reply": True}
@@ -114,32 +118,34 @@ def start_kb(idx, uname):
     c = BTN_COLOR
     return [
         [R(ch, cb=f"sb:img:{idx}", s=c["letters"]) for ch in smallcaps(BOT_NAME)],
-        [R("ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ɢʀᴏᴜᴘ", url=f"https://t.me/{uname}?startgroup=true", s=c["add_group"])],
-        [R("ᴄᴏᴍᴍᴀɴᴅs", cb="sb:help", s=c["commands"]), R("sᴇᴛᴛɪɴɢs", cb="sb:set", s=c["settings"])],
-        [R("ᴄᴏɴɴᴇᴄᴛɪᴏɴs", cb="sb:conn", s=c["connections"]), R("ᴀʙᴏᴜᴛ", cb="sb:about", s=c["about"])],
+        [R(smallcaps("add me to your group"), url=f"https://t.me/{uname}?startgroup=true", s=c["add_group"])],
+        [R(smallcaps("commands"), cb="sb:help", s=c["commands"]), R(smallcaps("settings"), cb="sb:set", s=c["settings"])],
+        [R(smallcaps("connections"), cb="sb:conn", s=c["connections"]), R(smallcaps("about"), cb="sb:about", s=c["about"])],
     ]
 
-BACK = lambda: [R("◀ ʙᴀᴄᴋ", cb="sb:back", s=BTN_COLOR["back"])]
+BACK = lambda: [R(smallcaps("◀ back"), cb="sb:back", s=BTN_COLOR["back"])]
 
+# ------------------------- bulletproof start-screen sender
 async def send_start(c, chat, img, caption, kb):
-    if is_url(img): await ui_send(chat, f'<a href="{img}">\u200b</a>\n{caption}', kb, preview=True)
-    else: await raw_send_photo(chat, img, caption, kb)
-
-async def update_start(q, img, caption, kb):
-    chat, mid = q.message.chat.id, q.message.id
     if is_url(img):
-        if q.message.photo:
-            try: await q.message.delete()
-            except Exception: pass
-            await ui_send(chat, f'<a href="{img}">\u200b</a>\n{caption}', kb, preview=True)
-        else:
-            await ui_edit(chat, mid, f'<a href="{img}">\u200b</a>\n{caption}', kb, preview=True)
-    else:
-        if q.message.photo: await raw_edit_media(chat, mid, img, caption, kb)
-        else:
-            try: await q.message.delete()
-            except Exception: pass
-            await raw_send_photo(chat, img, caption, kb)
+        try: return await ui_send(chat, f'<a href="{img}">\u200b</a>\n{caption}', kb, preview=True)
+        except Exception as e: log.warning("start: preview failed (%s)", e)
+    try: return await raw_send_photo(chat, img, caption, kb)
+    except Exception as e: log.warning("start: photo failed (%s)", e)
+    try: return await ui_send(chat, caption, kb)
+    except Exception as e: log.warning("start: text failed (%s)", e)
+    return await ui_send(chat, _strip_pe(caption), kb)
+
+async def update_start(c, q, img, caption, kb):
+    chat, mid = q.message.chat.id, q.message.id
+    try:
+        if q.message.photo or not is_url(img): raise ValueError("switch mode")
+        await ui_edit(chat, mid, f'<a href="{img}">\u200b</a>\n{caption}', kb, preview=True)
+    except Exception as e:
+        log.warning("update_start: %s -> resend", e)
+        try: await q.message.delete()
+        except Exception: pass
+        await send_start(c, chat, img, caption, kb)
 
 # ------------------------------------------------------- loading animations
 LD = {}
@@ -148,11 +154,11 @@ async def _ttl(msg, ttl):
     try: await msg.delete()
     except Exception: pass
 
-async def think(c, m, base="ᴡᴀɪᴛ ᴀ sᴇᴄ", emojis=None, ticks=3, delay=0.4, ttl=10):
+async def think(c, m, base="wait a sec", emojis=None, ticks=3, delay=0.4, ttl=10):
     if not m.from_user: return None
     msg = None
     for i in range(1, ticks + 1):
-        body = f"<b><i>{base}{'.' * i}</i></b>"
+        body = f"<b><i>{smallcaps(base)}{'.' * i}</i></b>"
         if emojis: body = f"{emojis[(i - 1) % len(emojis)]} {body}"
         if msg is None: msg = await c.send_message(m.chat.id, body)
         else:
@@ -173,9 +179,9 @@ async def ship(c, m, text=None, rows=None):
     if m.from_user: await clear_ld(c, m.chat.id, m.from_user.id)
     return await ui_send(m.chat.id, text, rows, reply_id=m.id)
 
-async def qanim(q, base="ᴡᴀɪᴛ ᴀ sᴇᴄ", ticks=3, delay=0.3):
+async def qanim(q, base="wait a sec", ticks=3, delay=0.3):
     for i in range(1, ticks + 1):
-        body = f"<b><i>{base}{'.' * i}</i></b>"
+        body = f"<b><i>{smallcaps(base)}{'.' * i}</i></b>"
         try:
             if q.message.media: await q.message.edit_caption(body)
             else: await q.message.edit_text(body)
@@ -239,11 +245,12 @@ async def target(c, m, owner=False):
         g = (await cn.find_one({"_id": u}) or {}).get("active")
         if not g:
             await clear_ld(c, m.chat.id, u)
-            await m.reply_text("<b>❌ ɴᴏᴛ ᴄᴏɴɴᴇᴄᴛᴇᴅ</b>\n\n<blockquote>sᴇɴᴅ /connect ɪɴ ʏᴏᴜʀ ɢʀᴏᴜᴘ, ᴏʀ /connect -100ɪᴅ ʜᴇʀᴇ.</blockquote>")
+            await m.reply_text(f"<b>❌ {smallcaps('not connected')}</b>\n\n<blockquote>{smallcaps('send /connect in your group, or /connect -100id here.')}</blockquote>")
             return None
     if await is_adm(c, g, u, owner, trust=(m.chat.type not in GRP and not owner)): return g
     await clear_ld(c, m.chat.id, u)
-    await m.reply_text("<b>❌ ᴘᴇʀᴍɪssɪᴏɴ ᴅᴇɴɪᴇᴅ</b>\n\n<blockquote>ᴏɴʟʏ ᴛʜᴇ ɢʀᴏᴜᴘ ᴏᴡɴᴇʀ ᴄᴀɴ ᴅᴏ ᴛʜɪs.</blockquote>" if owner else "<b>❌ ᴘᴇʀᴍɪssɪᴏɴ ᴅᴇɴɪᴇᴅ</b>\n\n<blockquote>ᴀᴅᴍɪɴs ᴏɴʟʏ.</blockquote>")
+    perm_msg = smallcaps('only the group owner can do this.') if owner else smallcaps('admins only.')
+    await m.reply_text(f"<b> {smallcaps('permission denied')}</b>\n\n<blockquote>{perm_msg}</blockquote>")
     return None
 
 async def title(c, g):
@@ -300,7 +307,7 @@ async def start(c, m):
     if m.chat.type == T.PRIVATE and m.command[1:2] == ["setwel"]: return await setwel(c, m)
     if m.chat.type == T.PRIVATE and m.command[0] == "start":
         only = len(m.command) == 1
-        await think(c, m, "sᴛᴀʀᴛɪɴɢ", emojis=LOAD_EMOJIS if only else None, ttl=15)
+        await think(c, m, "starting", emojis=LOAD_EMOJIS if only else None, ttl=15)
         await clear_ld(c, m.chat.id, m.from_user.id)
         if START_IMGS:
             idx = random.randrange(len(START_IMGS))
@@ -325,11 +332,11 @@ async def sb_show(c, q, txt, rows):
 async def sb_cb(c, q):
     p = q.data.split(":"); a = p[1]; chat = q.message.chat.id
     if a == "img":
-        if not START_IMGS: return await q.answer("ɴᴏ ɪᴍᴀɢᴇs ᴀᴅᴅᴇᴅ ʏᴇᴛ.", show_alert=True)
+        if not START_IMGS: return await q.answer(smallcaps("no images added yet."), show_alert=True)
         cur = int(p[2]) if len(p) > 2 and p[2].lstrip("-").isdigit() else -1
         idx = random.choice([i for i in range(len(START_IMGS)) if i != cur] or [0])
         await q.answer()
-        await update_start(q, START_IMGS[idx], start_txt(q.from_user), start_kb(idx, c.me.username))
+        await update_start(c, q, START_IMGS[idx], start_txt(q.from_user), start_kb(idx, c.me.username))
         return
     if a == "back":
         await qanim(q); await q.answer()
@@ -346,13 +353,13 @@ async def sb_cb(c, q):
         return await sb_show(c, q, HELP_TEXT, BACK())
     if a == "about":
         await qanim(q); await q.answer()
-        txt = (f"<b>❓ ᴀʙᴏᴜᴛ {smallcaps(BOT_NAME)}</b>\n\n<blockquote>ɪ ᴀᴍ ᴀɴ ᴀᴜᴛᴏ ꜰɪʟᴛᴇʀ ʙᴏᴛ ᴡɪᴛʜ ᴘʀᴇᴍɪᴜᴍ ꜰᴇᴀᴛᴜʀᴇs.\n"
-               f"ᴍᴀɪɴᴛᴀɪɴᴇᴅ ʙʏ : <a href=\"{MAINTAINER_URL}\">{MAINTAINER}</a></blockquote>")
+        txt = (f"<b>❓ {smallcaps('about')} {smallcaps(BOT_NAME)}</b>\n\n<blockquote>{smallcaps('i am an auto filter bot with premium features.')}\n"
+               f"{smallcaps('maintained by')} : <a href=\"{MAINTAINER_URL}\">{MAINTAINER}</a></blockquote>")
         return await sb_show(c, q, txt, BACK())
     if a == "set":
         g = (await cn.find_one({"_id": q.from_user.id}) or {}).get("active")
-        if not g: return await q.answer("ᴄᴏɴɴᴇᴄᴛ ᴀ ɢʀᴏᴜᴘ ꜰɪʀsᴛ: sᴇɴᴅ /connect ɪɴ ʏᴏᴜʀ ɢʀᴏᴜᴘ.", show_alert=True)
-        if not await is_adm(c, g, q.from_user.id, trust=True): return await q.answer("ᴀᴅᴍɪɴs ᴏɴʟʏ.", show_alert=True)
+        if not g: return await q.answer(smallcaps("connect a group first: send /connect in your group."), show_alert=True)
+        if not await is_adm(c, g, q.from_user.id, trust=True): return await q.answer(smallcaps("admins only."), show_alert=True)
         await qanim(q); await q.answer()
         cf = await cfg(g)
         return await sb_show(c, q, st_txt(cf), st_kb(g, cf) + BACK())
@@ -365,14 +372,25 @@ async def sb_cb(c, q):
 async def info_cmd(c, m):
     await think(c, m)
     u = m.reply_to_message.from_user if m.reply_to_message and m.reply_to_message.from_user else m.from_user
-    if not u: return await ship(c, m, "<b>❌ ɴᴏ ᴜsᴇʀ</b>\n\n<blockquote>ʀᴇᴘʟʏ ᴛᴏ ᴀ ᴜsᴇʀ ᴏʀ sᴇɴᴅ ɪɴ ᴀ ɢʀᴏᴜᴘ ᴛᴏ sᴇᴇ ɪɴꜰᴏ.</blockquote>")
-    text = "<b>👤 ᴜsᴇʀ ɪɴꜰᴏ</b>\n\n<blockquote>"
-    text += f"<b>🆔 ɪᴅ:</b> <code>{u.id}</code>\n<b>👤 ꜰɪʀsᴛ ɴᴀᴍᴇ:</b> {html.escape(u.first_name or 'ɴᴏɴᴇ')}\n"
-    if u.last_name: text += f"<b>👤 ʟᴀsᴛ ɴᴀᴍᴇ:</b> {html.escape(u.last_name)}\n"
-    if u.username: text += f"<b>🔗 ᴜsᴇʀɴᴀᴍᴇ:</b> @{u.username}\n"
-    text += f"<b>👑 ᴘʀᴇᴍɪᴜᴍ:</b> {'✅ ʏᴇs' if u.is_premium else '❌ ɴᴏ'}\n<b>🤖 ʙᴏᴛ:</b> {'✅ ʏᴇs' if u.is_bot else '❌ ɴᴏ'}\n"
-    text += f"<b>🔗 ᴘʀᴏꜰɪʟᴇ:</b> <a href='tg://user?id={u.id}'>ᴄʟɪᴄᴋ ʜᴇʀᴇ</a></blockquote>"
+    if not u: return await ship(c, m, f"<b>❌ {smallcaps('no user')}</b>\n\n<blockquote>{smallcaps('reply to a user or send in a group to see info.')}</blockquote>")
+    text = f"<b>{pe('crown')} {smallcaps('user info')}</b>\n\n<blockquote>"
+    text += f"<b>🆔 {smallcaps('id')}:</b> <code>{u.id}</code>\n<b>👤 {smallcaps('first name')}:</b> {html.escape(u.first_name or smallcaps('none'))}\n"
+    if u.last_name: text += f"<b>👤 {smallcaps('last name')}:</b> {html.escape(u.last_name)}\n"
+    if u.username: text += f"<b> {smallcaps('username')}:</b> @{u.username}\n"
+    text += f"<b>👑 {smallcaps('premium')}:</b> {'✅ ' + smallcaps('yes') if u.is_premium else '❌ ' + smallcaps('no')}\n<b>🤖 {smallcaps('bot')}:</b> {'✅ ' + smallcaps('yes') if u.is_bot else '❌ ' + smallcaps('no')}\n"
+    text += f"<b>🔗 {smallcaps('profile')}:</b> <a href='tg://user?id={u.id}'>{smallcaps('click here')}</a></blockquote>"
     await ship(c, m, text)
+
+@app.on_message(filters.command("getid") & filters.private)
+async def getid(c, m):
+    if not (m.from_user and sudo(m.from_user.id)): return
+    r = m.reply_to_message
+    if not r: return await m.reply_text(f"<b>❌ {smallcaps('reply to a photo/video with /getid')}</b>")
+    fid = None
+    for x in MEDIA:
+        obj = getattr(r, x, None)
+        if obj: fid = getattr(obj, "file_id", None); break
+    await m.reply_text(f"<b>📎 {smallcaps('file_id')}:</b>\n<code>{fid}</code>" if fid else f"<b> {smallcaps('no media found')}</b>")
 
 @app.on_message(filters.command(["filter", "add"]))
 async def add(c, m):
@@ -387,10 +405,10 @@ async def add(c, m):
     if r and not arg.lstrip().startswith(('"', "&quot;", "“")):
         k, rest = (plain(arg).lower() if low else plain(arg)), ""
     if not k or len(k) > 100:
-        return await ship(c, m, "<b>❌ ᴜsᴀɢᴇ ᴇʀʀᴏʀ</b>\n\n<blockquote>ʀᴇᴘʟʏ ᴛᴏ ᴀ ᴍᴇssᴀɢᴇ ᴡɪᴛʜ <code>/filter keyword</code>\nᴏʀ <code>/filter word text</code>\n\n<b>ᴍᴏᴅᴇs:</b>\n• <code>contains:price</code>\n• <code>regex:^hi(llo)?$</code></blockquote>")
+        return await ship(c, m, f"<b> {smallcaps('usage error')}</b>\n\n<blockquote>{smallcaps('reply to a message with /filter keyword')}\n{smallcaps('or /filter word text')}\n\n<b>{smallcaps('modes')}:</b>\n• <code>contains:price</code>\n• <code>regex:^hi(llo)?$</code></blockquote>")
     if mt == "regex":
         try: re.compile(k)
-        except re.error as e: return await ship(c, m, f"<b>❌ ɪɴᴠᴀʟɪᴅ ʀᴇɢᴇx</b>\n\n<blockquote>{html.escape(str(e))}</blockquote>")
+        except re.error as e: return await ship(c, m, f"<b>❌ {smallcaps('invalid regex')}</b>\n\n<blockquote>{html.escape(str(e))}</blockquote>")
     t, b = parse(rest)
     if r:
         for x in MEDIA:
@@ -402,11 +420,12 @@ async def add(c, m):
         if kb:
             rows = [[{"text": x.text, "url": x.url} for x in row if getattr(x, "url", None)] for row in kb]
             b = [row for row in rows if row] + b
-    if not t and not fid: return await ship(c, m, "<b>❌ ᴇᴍᴘᴛʏ ꜰɪʟᴛᴇʀ</b>\n\n<blockquote>ʀᴇᴘʟʏ ᴛᴏ ᴀ ᴍᴇssᴀɢᴇ/ᴍᴇᴅɪᴀ ᴏʀ ᴀᴅᴅ sᴏᴍᴇ ᴛᴇxᴛ.</blockquote>")
-    if fid and len(t) > 1024: return await ship(c, m, "<b>❌ ᴄᴀᴘᴛɪᴏɴ ᴛᴏᴏ ʟᴏɴɢ</b>\n\n<blockquote>ᴄᴀᴘᴛɪᴏɴ ᴍᴀx ɪs 1024 ᴄʜᴀʀᴀᴄᴛᴇʀs.</blockquote>")
+    if not t and not fid: return await ship(c, m, f"<b>❌ {smallcaps('empty filter')}</b>\n\n<blockquote>{smallcaps('reply to a message/media or add some text.')}</blockquote>")
+    if fid and len(t) > 1024: return await ship(c, m, f"<b> {smallcaps('caption too long')}</b>\n\n<blockquote>{smallcaps('caption max is 1024 characters.')}</blockquote>")
     await fl.update_one({"g": g, "k": k}, {"$set": {"t": t, "ft": ft, "fid": fid, "b": b, "mt": mt}}, upsert=True)
     KW.pop(g, None)
-    await ship(c, m, f"<b>✅ ꜰɪʟᴛᴇʀ sᴀᴠᴇᴅ</b>\n\n<blockquote>ᴋᴇʏᴡᴏʀᴅ: <code>{html.escape(k)}</code>" + ("" if mt == "word" else f" ({smallcaps(mt)} ᴍᴀᴛᴄʜ)") + "</blockquote>")
+    match_txt = f" ({smallcaps(mt)} {smallcaps('match')})" if mt != "word" else ""
+    await ship(c, m, f"<b>✅ {smallcaps('filter saved')}</b>\n\n<blockquote>{smallcaps('keyword')}: <code>{html.escape(k)}</code>{match_txt}</blockquote>")
 
 def kh(k): return hashlib.md5(k.encode()).hexdigest()[:10]
 
@@ -420,8 +439,8 @@ async def fl_kb(g, page=0):
     return (rows if rows else None), ks
 
 def panel_txt(t, n, has):
-    if not has: return "<b>📭 ɴᴏ ꜰɪʟᴛᴇʀs</b>\n\n<blockquote>ɴᴏ ꜰɪʟᴛᴇʀs ʏᴇᴛ. ʀᴇᴘʟʏ ᴛᴏ ᴀ ᴘᴏsᴛ ᴡɪᴛʜ <code>/filter keyword</code> ᴛᴏ ᴀᴅᴅ ᴏɴᴇ.</blockquote>"
-    return f"<b>📋 ꜰɪʟᴛᴇʀs ɪɴ {html.escape(smallcaps(t))}</b> ({n})\n\n<blockquote>ᴛᴀᴘ 🗑 ᴛᴏ ᴅᴇʟᴇᴛᴇ ᴀ ꜰɪʟᴛᴇʀ.</blockquote>"
+    if not has: return f"<b> {smallcaps('no filters')}</b>\n\n<blockquote>{smallcaps('no filters yet. reply to a post with /filter keyword to add one.')}</blockquote>"
+    return f"<b>📋 {smallcaps('filters in')} {html.escape(smallcaps(t))}</b> ({n})\n\n<blockquote>{smallcaps('tap  to delete a filter.')}</blockquote>"
 
 async def panel(c, m, g):
     kb, n = await fl_kb(g)
@@ -439,17 +458,17 @@ async def fl_cb(c, q):
     p = q.data.split(":"); a, g = p[0], int(p[1])
     cd = await cn.find_one({"_id": q.from_user.id}) or {}
     trust = q.message.chat.type == T.PRIVATE and g in cd.get("groups", [])
-    if not await is_adm(c, g, q.from_user.id, trust=trust): return await q.answer("ᴀᴅᴍɪɴs ᴏɴʟʏ.", show_alert=True)
+    if not await is_adm(c, g, q.from_user.id, trust=trust): return await q.answer(smallcaps("admins only."), show_alert=True)
     page = int(p[2]) if a == "fp" else int(p[3])
     if a == "fv":
         k = next((x for x in [d["k"] async for d in fl.find({"g": g}, {"k": 1})] if kh(x) == p[2]), None)
-        return await q.answer(k or "ᴀʟʀᴇᴀᴅʏ ᴅᴇʟᴇᴛᴇᴅ", show_alert=True)
+        return await q.answer(k or smallcaps("already deleted"), show_alert=True)
     await qanim(q)
     if a == "fp": await q.answer()
     else:
         k = next((x for x in [d["k"] async for d in fl.find({"g": g}, {"k": 1})] if kh(x) == p[2]), None)
         if k: await fl.delete_one({"g": g, "k": k}); KW.pop(g, None)
-        await q.answer("ᴅᴇʟᴇᴛᴇᴅ 🗑" if k else "ᴀʟʀᴇᴀᴅʏ ᴅᴇʟᴇᴛᴇᴅ")
+        await q.answer(smallcaps("deleted 🗑") if k else smallcaps("already deleted"))
     kb, n = await fl_kb(g, page)
     try: await ui_edit(q.message.chat.id, q.message.id, panel_txt(await title(c, g), n, bool(kb)), kb)
     except Exception: pass
@@ -466,26 +485,29 @@ async def rm(c, m):
     k, _ = kwsplit(arg, mt != "regex")
     if not arg.lstrip().startswith(('"', "&quot;", "“")): k = plain(arg) if mt == "regex" else plain(arg).lower()
     r = await fl.delete_one({"g": g, "k": k}); KW.pop(g, None)
-    await ship(c, m, f"<b>✅ ᴅᴇʟᴇᴛᴇᴅ</b>\n\n<blockquote>ꜰɪʟᴛᴇʀ <code>{k}</code> ᴅᴇʟᴇᴛᴇᴅ.</blockquote>" if r.deleted_count else "<b>❌ ɴᴏᴛ ꜰᴏᴜɴᴅ</b>\n\n<blockquote>ɴᴏ sᴜᴄʜ ꜰɪʟᴛᴇʀ. sᴇɴᴅ /filters ᴀɴᴅ ᴛᴀᴘ 🗑 ɪɴsᴛᴇᴀᴅ.</blockquote>")
+    if r.deleted_count:
+        await ship(c, m, f"<b>✅ {smallcaps('deleted')}</b>\n\n<blockquote>{smallcaps('filter')} <code>{k}</code> {smallcaps('deleted.')}</blockquote>")
+    else:
+        await ship(c, m, f"<b>❌ {smallcaps('not found')}</b>\n\n<blockquote>{smallcaps('no such filter. send /filters and tap 🗑 instead.')}</blockquote>")
 
 @app.on_message(filters.command("delall"))
 async def delall(c, m):
     g = await target(c, m, owner=True)
     if g is None: return
     await think(c, m)
-    await ship(c, m, "<b>⚠️ ᴡᴀʀɴɪɴɢ</b>\n\n<blockquote>ᴅᴇʟᴇᴛᴇ <b>ᴀʟʟ</b> ꜰɪʟᴛᴇʀs?</blockquote>",
-               [[R("ʏᴇs", cb=f"da:y:{g}", s="danger"), R("ᴄᴀɴᴄᴇʟ", cb="da:n:0")]])
+    await ship(c, m, f"<b>⚠️ {smallcaps('warning')}</b>\n\n<blockquote>{smallcaps('delete all filters?')}</blockquote>",
+               [[R(smallcaps("yes"), cb=f"da:y:{g}", s="danger"), R(smallcaps("cancel"), cb="da:n:0")]])
 
 @app.on_callback_query(filters.regex(r"^da:"))
 async def delall_cb(c, q):
     _, a, g = q.data.split(":"); g = int(g)
     if a != "y":
         await qanim(q)
-        return await ui_edit(q.message.chat.id, q.message.id, "<b>❌ ᴄᴀɴᴄᴇʟʟᴇᴅ</b>")
-    if not await is_adm(c, g, q.from_user.id, True): return await q.answer("ᴏᴡɴᴇʀ ᴏɴʟʏ.", show_alert=True)
+        return await ui_edit(q.message.chat.id, q.message.id, f"<b>❌ {smallcaps('cancelled')}</b>")
+    if not await is_adm(c, g, q.from_user.id, True): return await q.answer(smallcaps("owner only."), show_alert=True)
     await qanim(q)
     r = await fl.delete_many({"g": g}); KW.pop(g, None)
-    await ui_edit(q.message.chat.id, q.message.id, f"<b>✅ sᴜᴄᴄᴇss</b>\n\n<blockquote>ᴅᴇʟᴇᴛᴇᴅ {r.deleted_count} ꜰɪʟᴛᴇʀ(s).</blockquote>")
+    await ui_edit(q.message.chat.id, q.message.id, f"<b>✅ {smallcaps('success')}</b>\n\n<blockquote>{smallcaps('deleted')} {r.deleted_count} {smallcaps('filter(s).')}</blockquote>")
 
 @app.on_message(filters.command("color"))
 async def color(c, m):
@@ -496,8 +518,8 @@ async def color(c, m):
     k, rest = kwsplit(p[1] if len(p) > 1 else "")
     cols = rest.lower().replace(",", " ").split()
     d = await fl.find_one({"g": g, "k": k}) if k else None
-    if not k or not cols: return await ship(c, m, '<b>❌ ᴜsᴀɢᴇ ᴇʀʀᴏʀ</b>\n\n<blockquote>ᴜsᴀɢᴇ: /color ᴋᴇʏᴡᴏʀᴅ ʀᴇᴅ ɢʀᴇᴇɴ ʙʟᴜᴇ ɴᴏɴᴇ\n(ᴏɴᴇ ᴄᴏʟᴏᴜʀ ᴘᴇʀ ʙᴜᴛᴛᴏɴ, ɪɴ ᴏʀᴅᴇʀ)</blockquote>')
-    if not d or not d.get("b"): return await ship(c, m, "<b>❌ ɴᴏ ʙᴜᴛᴛᴏɴs</b>\n\n<blockquote>ɴᴏ sᴜᴄʜ ꜰɪʟᴛᴇʀ, ᴏʀ ɪᴛ ʜᴀs ɴᴏ ʙᴜᴛᴛᴏɴs.</blockquote>")
+    if not k or not cols: return await ship(c, m, f'<b>❌ {smallcaps("usage error")}</b>\n\n<blockquote>{smallcaps("usage: /color keyword red green blue none")}\n{smallcaps("(one colour per button, in order)")}</blockquote>')
+    if not d or not d.get("b"): return await ship(c, m, f"<b>❌ {smallcaps('no buttons')}</b>\n\n<blockquote>{smallcaps('no such filter, or it has no buttons.')}</blockquote>")
     i = 0
     for row in d["b"]:
         for b in row:
@@ -506,7 +528,7 @@ async def color(c, m):
             if col in STY: b["s"] = STY[col]
             else: b.pop("s", None)
     await fl.update_one({"g": g, "k": k}, {"$set": {"b": d["b"]}})
-    await ship(c, m, f"<b>✅ ᴜᴘᴅᴀᴛᴇᴅ</b>\n\n<blockquote>ʙᴜᴛᴛᴏɴ ᴄᴏʟᴏᴜʀs ᴜᴘᴅᴀᴛᴇᴅ ꜰᴏʀ <code>{k}</code>.</blockquote>")
+    await ship(c, m, f"<b>✅ {smallcaps('updated')}</b>\n\n<blockquote>{smallcaps('button colours updated for')} <code>{k}</code>.</blockquote>")
 
 @app.on_message(filters.command("connect"))
 async def connect(c, m):
@@ -515,16 +537,16 @@ async def connect(c, m):
     if m.chat.type in GRP: g = m.chat.id
     else:
         if len(m.command) < 2:
-            return await m.reply_text("<b>❌ ʜᴏᴡ ᴛᴏ ᴄᴏɴɴᴇᴄᴛ</b>\n\n<blockquote>ʙᴇsᴛ ᴡᴀʏ: sᴇɴᴅ /connect <b>ɪɴsɪᴅᴇ ʏᴏᴜʀ ɢʀᴏᴜᴘ</b>.\nᴏʀ ʜᴇʀᴇ: <code>/connect -100xxxxxxxxxx</code></blockquote>")
+            return await m.reply_text(f"<b> {smallcaps('how to connect')}</b>\n\n<blockquote>{smallcaps('best way: send /connect inside your group.')}\n{smallcaps('or here:')} <code>/connect -100xxxxxxxxxx</code></blockquote>")
         try: g = int(m.command[1])
-        except ValueError: return await m.reply_text("<b>❌ ɪɴᴠᴀʟɪᴅ ɪᴅ</b>\n\n<blockquote>ᴛʜᴇ ɢʀᴏᴜᴘ ɪᴅ ᴍᴜsᴛ ʙᴇ ᴀ ɴᴜᴍʙᴇʀ ʟɪᴋᴇ <code>-1001234567890</code>.</blockquote>")
+        except ValueError: return await m.reply_text(f"<b>❌ {smallcaps('invalid id')}</b>\n\n<blockquote>{smallcaps('the group id must be a number like')} <code>-1001234567890</code>.</blockquote>")
         try: await c.get_chat(g)
         except Exception as e:
-            return await m.reply_text(f"<b>❌ ᴜɴʀᴇᴀᴄʜᴀʙʟᴇ</b>\n\n<blockquote>ɪ ᴄᴀɴ'ᴛ ʀᴇᴀᴄʜ ᴛʜᴀᴛ ɢʀᴏᴜᴘ ({type(e).__name__}).\nᴍᴀᴋᴇ sᴜʀᴇ ɪ'ᴍ ᴀᴅᴅᴇᴅ ᴛᴏ ɪᴛ, ᴛʜᴇɴ sᴇɴᴅ /connect <b>ɪɴsɪᴅᴇ ᴛʜᴇ ɢʀᴏᴜᴘ</b> ɪɴsᴛᴇᴀᴅ.</blockquote>")
-    if not await is_adm(c, g, u): return await m.reply_text("<b>❌ ɴᴏᴛ ᴀᴅᴍɪɴ</b>\n\n<blockquote>ʏᴏᴜ ᴍᴜsᴛ ʙᴇ ᴀɴ ᴀᴅᴍɪɴ ᴏꜰ ᴛʜᴀᴛ ɢʀᴏᴜᴘ ᴛᴏ ᴄᴏɴɴᴇᴄᴛ ɪᴛ.</blockquote>")
+            return await m.reply_text(f"<b>❌ {smallcaps('unreachable')}</b>\n\n<blockquote>{smallcaps(\"i can't reach that group\")} ({type(e).__name__}).\n{smallcaps('make sure i\\'m added to it, then send /connect inside the group instead.')}</blockquote>")
+    if not await is_adm(c, g, u): return await m.reply_text(f"<b> {smallcaps('not admin')}</b>\n\n<blockquote>{smallcaps('you must be an admin of that group to connect it.')}</blockquote>")
     await think(c, m)
     await conn_set(u, g)
-    await ship(c, m, f"<b>✅ ᴄᴏɴɴᴇᴄᴛᴇᴅ</b>\n\n<blockquote>ᴄᴏɴɴᴇᴄᴛᴇᴅ ᴛᴏ <b>{html.escape(smallcaps(await title(c, g)))}</b>. ᴍᴀɴᴀɢᴇ ꜰɪʟᴛᴇʀs ꜰʀᴏᴍ ᴍʏ ᴘᴍ.</blockquote>")
+    await ship(c, m, f"<b>✅ {smallcaps('connected')}</b>\n\n<blockquote>{smallcaps('connected to')} <b>{html.escape(smallcaps(await title(c, g)))}</b>. {smallcaps('manage filters from my pm.')}</blockquote>")
 
 @app.on_message(filters.command("disconnect"))
 async def disconnect(c, m):
@@ -532,7 +554,7 @@ async def disconnect(c, m):
     await think(c, m)
     g = m.chat.id if m.chat.type in GRP else (await cn.find_one({"_id": m.from_user.id}) or {}).get("active")
     if g: await conn_set(m.from_user.id, g, False)
-    await ship(c, m, "<b>✅ ᴅɪsᴄᴏɴɴᴇᴄᴛᴇᴅ</b>" if g else "<b>❌ ɴᴏᴛ ᴄᴏɴɴᴇᴄᴛᴇᴅ</b>")
+    await ship(c, m, f"<b>✅ {smallcaps('disconnected')}</b>" if g else f"<b>❌ {smallcaps('not connected')}</b>")
 
 async def conn_kb(c, u):
     d = await cn.find_one({"_id": u}) or {}
@@ -540,7 +562,8 @@ async def conn_kb(c, u):
     return rows or None
 
 def conn_txt(has):
-    return "<b>🔗 ʏᴏᴜʀ ɢʀᴏᴜᴘs</b>\n\n<blockquote>ᴛᴀᴘ ᴛᴏ sᴇʟᴇᴄᴛ, 🗑 ᴛᴏ ʀᴇᴍᴏᴠᴇ.</blockquote>" if has else "<b>📭 ɴᴏ ᴄᴏɴɴᴇᴄᴛɪᴏɴs</b>\n\n<blockquote>sᴇɴᴅ /connect ɪɴ ʏᴏᴜʀ ɢʀᴏᴜᴘ ꜰɪʀsᴛ.</blockquote>"
+    if has: return f"<b> {smallcaps('your groups')}</b>\n\n<blockquote>{smallcaps('tap to select,  to remove.')}</blockquote>"
+    return f"<b>📭 {smallcaps('no connections')}</b>\n\n<blockquote>{smallcaps('send /connect in your group first.')}</blockquote>"
 
 @app.on_message(filters.command("connections") & filters.private)
 async def conns(c, m):
@@ -554,7 +577,7 @@ async def conn_cb(c, q):
     await qanim(q)
     if a == "s": await cn.update_one({"_id": u}, {"$set": {"active": g}})
     else: await conn_set(u, g, False)
-    await q.answer("ᴅᴏɴᴇ")
+    await q.answer(smallcaps("done"))
     kb = await conn_kb(c, u)
     try: await ui_edit(q.message.chat.id, q.message.id, conn_txt(bool(kb)), kb)
     except Exception: pass
@@ -579,21 +602,21 @@ async def can(c, q, g):
     return await is_adm(c, g, q.from_user.id, trust=(q.message.chat.type == T.PRIVATE and g in cd.get("groups", [])))
 
 def st_txt(cf):
-    return ("<b>⚙️ ɢʀᴏᴜᴘ ᴘʀᴏᴛᴇᴄᴛɪᴏɴ</b>\n\n"
-            "<blockquote>ᴀᴅᴍɪɴs &amp; ᴛʜᴇ ᴏᴡɴᴇʀ ᴀʀᴇ ᴀʟᴡᴀʏs ᴀʟʟᴏᴡᴇᴅ.\nᴛᴜʀɴ ᴏɴ 🧪 <b>ᴛᴇsᴛ ᴍᴏᴅᴇ</b> ᴛᴏ ᴛᴇsᴛ ᴡɪᴛʜ ʏᴏᴜʀ ᴏᴡɴ ᴀᴄᴄᴏᴜɴᴛ.\n\n"
-            "• <b>ᴀɴᴛɪ-ʟɪɴᴋ</b>: ᴅᴇʟᴇᴛᴇs ʟɪɴᴋs (ᴇxᴄᴇᴘᴛ ᴀʟʟᴏᴡᴇᴅ) ᴀɴᴅ ᴘᴍs ᴛʜᴇ ᴏᴡɴᴇʀ.\n"
-            "• <b>ᴀɴᴛɪ-ꜰᴏʀᴡᴀʀᴅ</b> / <b>ᴀɴᴛɪ-ᴍᴇɴᴛɪᴏɴ</b>: ᴅᴇʟᴇᴛᴇ ꜰᴏʀᴡᴀʀᴅᴇᴅ ᴍᴇssᴀɢᴇs / @ᴍᴇɴᴛɪᴏɴs.\n"
-            f"• <b>ꜰʟᴏᴏᴅ</b>: {cf.get('fn', 6)} ᴍᴇssᴀɢᴇs ɪɴ {cf.get('ft', 5)}s = 10 ᴍɪɴ ᴍᴜᴛᴇ.\n"
-            "• <b>ᴀᴜᴛᴏ-ᴡᴀʀɴ</b>: ᴇᴀᴄʜ ᴅᴇʟᴇᴛᴇᴅ ᴍᴇssᴀɢᴇ ᴀᴅᴅs ᴀ ᴡᴀʀɴɪɴɢ; ᴀᴛ ᴛʜᴇ ʟɪᴍɪᴛ ᴛʜᴇ ᴜsᴇʀ ɪs ᴘᴜɴɪsʜᴇᴅ.</blockquote>"
-            "\n<i>ʙᴏᴛ ɴᴇᴇᴅs ᴀᴅᴍɪɴ ʀɪɢʜᴛs: ᴅᴇʟᴇᴛᴇ ᴍᴇssᴀɢᴇs + ʀᴇsᴛʀɪᴄᴛ ᴍᴇᴍʙᴇʀs.</i>")
+    return (f"<b>️ {smallcaps('group protection')}</b>\n\n"
+            f"<blockquote>{smallcaps('admins & the owner are always allowed.')}\n{smallcaps('turn on 🧪 test mode to test with your own account.')}\n\n"
+            f"• <b>{smallcaps('anti-link')}</b>: {smallcaps('deletes links (except allowed) and pms the owner.')}\n"
+            f"• <b>{smallcaps('anti-forward')}</b> / <b>{smallcaps('anti-mention')}</b>: {smallcaps('delete forwarded messages / @mentions.')}\n"
+            f"• <b>{smallcaps('flood')}</b>: {cf.get('fn', 6)} {smallcaps('messages in')} {cf.get('ft', 5)}s = 10 {smallcaps('min mute.')}\n"
+            f"• <b>{smallcaps('auto-warn')}</b>: {smallcaps('each deleted message adds a warning; at the limit the user is punished.')}</blockquote>"
+            f"\n<i>{smallcaps('bot needs admin rights: delete messages + restrict members.')}</i>")
 
 def st_kb(g, cf):
     b = lambda lb, k: R(f"{lb} {'✅' if cf.get(k) else '⛔'}", cb=f"st:{g}:{k}")
-    return [[b("🔗 ᴀɴᴛɪ-ʟɪɴᴋ", "al"), b("↪️ ᴀɴᴛɪ-ꜰᴏʀᴡᴀʀᴅ", "af")],
-            [b("@ ᴀɴᴛɪ-ᴍᴇɴᴛɪᴏɴ", "am"), b("🌊 ꜰʟᴏᴏᴅ", "fd")],
-            [b("⚠️ ᴀᴜᴛᴏ-ᴡᴀʀɴ", "aw"), b("🧪 ᴛᴇsᴛ ᴍᴏᴅᴇ", "tm")],
-            [R("➖", cb=f"st:{g}:w-"), R(f"ᴡᴀʀɴ ʟɪᴍɪᴛ: {cf.get('wl', 3)}", cb=f"st:{g}:w0"), R("➕", cb=f"st:{g}:w+")],
-            [R(f"ᴡᴀʀɴ ᴀᴄᴛɪᴏɴ: {smallcaps(cf.get('wa', 'mute'))}", cb=f"st:{g}:wa")]]
+    return [[b(f"🔗 {smallcaps('anti-link')}", "al"), b(f"↪️ {smallcaps('anti-forward')}", "af")],
+            [b(f"@ {smallcaps('anti-mention')}", "am"), b(f" {smallcaps('flood')}", "fd")],
+            [b(f"⚠️ {smallcaps('auto-warn')}", "aw"), b(f"🧪 {smallcaps('test mode')}", "tm")],
+            [R("", cb=f"st:{g}:w-"), R(f"{smallcaps('warn limit')}: {cf.get('wl', 3)}", cb=f"st:{g}:w0"), R("", cb=f"st:{g}:w+")],
+            [R(f"{smallcaps('warn action')}: {smallcaps(cf.get('wa', 'mute'))}", cb=f"st:{g}:wa")]]
 
 @app.on_message(filters.command(["settings", "antilink"]))
 async def settings_cmd(c, m):
@@ -607,7 +630,7 @@ async def settings_cmd(c, m):
 @app.on_callback_query(filters.regex(r"^st:"))
 async def st_cb(c, q):
     _, g, k = q.data.split(":"); g = int(g)
-    if not await can(c, q, g): return await q.answer("ᴀᴅᴍɪɴs ᴏɴʟʏ.", show_alert=True)
+    if not await can(c, q, g): return await q.answer(smallcaps("admins only."), show_alert=True)
     await qanim(q)
     cf = await cfg(g)
     if k in ("al", "af", "am", "fd", "aw", "tm"): await cfg_set(g, **{k: not cf.get(k)})
@@ -624,9 +647,9 @@ async def setflood(c, m):
     await think(c, m)
     try:
         n, t = int(m.command[1]), int(m.command[2]); assert 2 <= n <= 30 and 1 <= t <= 60
-    except Exception: return await ship(c, m, "<b>❌ ᴜsᴀɢᴇ ᴇʀʀᴏʀ</b>\n\n<blockquote>ᴜsᴀɢᴇ: /setflood ᴍᴇssᴀɢᴇs sᴇᴄᴏɴᴅs\n(ᴇ.ɢ. <code>/setflood 6 5</code>)</blockquote>")
+    except Exception: return await ship(c, m, f"<b>❌ {smallcaps('usage error')}</b>\n\n<blockquote>{smallcaps('usage: /setflood messages seconds')}\n({smallcaps('e.g.')} <code>/setflood 6 5</code>)</blockquote>")
     await cfg_set(g, fn=n, ft=t)
-    await ship(c, m, f"<b>✅ ᴜᴘᴅᴀᴛᴇᴅ</b>\n\n<blockquote>ꜰʟᴏᴏᴅ ʟɪᴍɪᴛ: {n} ᴍᴇssᴀɢᴇs ɪɴ {t} sᴇᴄᴏɴᴅs.</blockquote>")
+    await ship(c, m, f"<b>✅ {smallcaps('updated')}</b>\n\n<blockquote>{smallcaps('flood limit')}: {n} {smallcaps('messages in')} {t} {smallcaps('seconds.')}</blockquote>")
 
 async def tmp(c, g, text, secs=60, rows=None):
     try:
@@ -641,7 +664,7 @@ async def add_warn(c, g, u, why):
     r = await wn.find_one_and_update({"g": g, "u": u.id}, {"$inc": {"n": 1}}, upsert=True, return_document=ReturnDocument.AFTER)
     n = r["n"]
     if n < lim:
-        return f"<b>⚠️ ᴡᴀʀɴɪɴɢ ᴀᴅᴅᴇᴅ</b>\n\n<blockquote>{u.mention} ᴡᴀʀɴᴇᴅ <b>({n}/{lim})</b>\nʀᴇᴀsᴏɴ: {html.escape(why)}</blockquote>", [[R("🗑 ʀᴇᴍᴏᴠᴇ ᴡᴀʀɴ", cb=f"uw:{g}:{u.id}")]]
+        return f"<b>⚠️ {smallcaps('warning added')}</b>\n\n<blockquote>{u.mention} {smallcaps('warned')} <b>({n}/{lim})</b>\n{smallcaps('reason')}: {html.escape(why)}</blockquote>", [[R(f"🗑 {smallcaps('remove warn')}", cb=f"uw:{g}:{u.id}")]]
     await wn.delete_one({"g": g, "u": u.id})
     act = cf.get("wa", "mute")
     try:
@@ -649,31 +672,31 @@ async def add_warn(c, g, u, why):
         else:
             await c.ban_chat_member(g, u.id)
             if act == "kick": await c.unban_chat_member(g, u.id)
-        done = {"mute": "ᴍᴜᴛᴇᴅ", "kick": "ᴋɪᴄᴋᴇᴅ", "ban": "ʙᴀɴɴᴇᴅ"}[act]
+        done = {"mute": smallcaps("muted"), "kick": smallcaps("kicked"), "ban": smallcaps("banned")}[act]
     except Exception as e:
-        log.warning("warn action failed in %s: %s", g, e); done = "ɴᴏᴛ ᴘᴜɴɪsʜᴇᴅ (ɪ ɴᴇᴇᴅ ᴛʜᴇ 'ʀᴇsᴛʀɪᴄᴛ ᴍᴇᴍʙᴇʀs' ᴀᴅᴍɪɴ ʀɪɢʜᴛ)"
-    return f"<b>🚫 ʟɪᴍɪᴛ ʀᴇᴀᴄʜᴇᴅ</b>\n\n<blockquote>{u.mention} ʀᴇᴀᴄʜᴇᴅ {lim} ᴡᴀʀɴɪɴɢs ᴀɴᴅ ᴡᴀs {done}.\nʀᴇᴀsᴏɴ: {html.escape(why)}</blockquote>", [[R("↩️ ᴜɴᴅᴏ", cb=f"ub:{g}:{u.id}")]]
+        log.warning("warn action failed in %s: %s", g, e); done = smallcaps("not punished (i need the 'restrict members' admin right)")
+    return f"<b>🚫 {smallcaps('limit reached')}</b>\n\n<blockquote>{u.mention} {smallcaps('reached')} {lim} {smallcaps('warnings and was')} {done}.\n{smallcaps('reason')}: {html.escape(why)}</blockquote>", [[R(f"↩️ {smallcaps('undo')}", cb=f"ub:{g}:{u.id}")]]
 
 async def tgt_user(c, m):
     if m.chat.type not in GRP or not m.from_user:
         await clear_ld(c, m.chat.id, m.from_user.id if m.from_user else 0)
-        await m.reply_text("<b>❌ ɢʀᴏᴜᴘ ᴏɴʟʏ</b>\n\n<blockquote>ᴜsᴇ ᴛʜɪs ɪɴ ᴀ ɢʀᴏᴜᴘ, ᴀs ᴀ ʀᴇᴘʟʏ ᴛᴏ ᴛʜᴇ ᴜsᴇʀ's ᴍᴇssᴀɢᴇ.</blockquote>"); return None, None
+        await m.reply_text(f"<b>❌ {smallcaps('group only')}</b>\n\n<blockquote>{smallcaps('use this in a group, as a reply to the user\\'s message.')}</blockquote>"); return None, None
     if not await is_adm(c, m.chat.id, m.from_user.id):
         await clear_ld(c, m.chat.id, m.from_user.id)
-        await m.reply_text("<b>❌ ᴀᴅᴍɪɴs ᴏɴʟʏ</b>"); return None, None
+        await m.reply_text(f"<b>❌ {smallcaps('admins only')}</b>"); return None, None
     r = m.reply_to_message
     if not r or not r.from_user:
         await clear_ld(c, m.chat.id, m.from_user.id)
-        await m.reply_text("<b>❌ ʀᴇᴘʟʏ ᴍɪssɪɴɢ</b>\n\n<blockquote>ʀᴇᴘʟʏ ᴛᴏ ᴛʜᴇ ᴜsᴇʀ's ᴍᴇssᴀɢᴇ.</blockquote>"); return None, None
+        await m.reply_text(f"<b>❌ {smallcaps('reply missing')}</b>\n\n<blockquote>{smallcaps('reply to the user\\'s message.')}</blockquote>"); return None, None
     return m.chat.id, r.from_user
 
 @app.on_message(filters.command("warn"))
 async def warn_cmd(c, m):
     g, u = await tgt_user(c, m)
     if not g: return
-    if await is_adm(c, g, u.id): return await ship(c, m, "<b>❌ ᴄᴀɴɴᴏᴛ ᴡᴀʀɴ</b>\n\n<blockquote>ɪ ᴄᴀɴ'ᴛ ᴡᴀʀɴ ᴀᴅᴍɪɴs.</blockquote>")
+    if await is_adm(c, g, u.id): return await ship(c, m, f"<b>❌ {smallcaps('cannot warn')}</b>\n\n<blockquote>{smallcaps('i can\\'t warn admins.')}</blockquote>")
     await think(c, m)
-    txt, kb = await add_warn(c, g, u, " ".join(m.command[1:]) or "ɴᴏ ʀᴇᴀsᴏɴ ɢɪᴠᴇɴ")
+    txt, kb = await add_warn(c, g, u, " ".join(m.command[1:]) or smallcaps("no reason given"))
     await ship(c, m, txt, kb)
 
 @app.on_message(filters.command(["unwarn", "resetwarns"]))
@@ -685,7 +708,7 @@ async def unwarn_cmd(c, m):
     else:
         r = await wn.find_one_and_update({"g": g, "u": u.id, "n": {"$gt": 0}}, {"$inc": {"n": -1}}, return_document=ReturnDocument.AFTER)
         left = r["n"] if r else 0
-    await ship(c, m, f"<b>✅ ᴜᴘᴅᴀᴛᴇᴅ</b>\n\n<blockquote>{u.mention} ɴᴏᴡ ʜᴀs {left} ᴡᴀʀɴɪɴɢ(s).</blockquote>")
+    await ship(c, m, f"<b>✅ {smallcaps('updated')}</b>\n\n<blockquote>{u.mention} {smallcaps('now has')} {left} {smallcaps('warning(s).')}</blockquote>")
 
 @app.on_message(filters.command("warns") & filters.group)
 async def warns_cmd(c, m):
@@ -694,7 +717,7 @@ async def warns_cmd(c, m):
     u = r.from_user if r and r.from_user else m.from_user
     if not u: return
     d = await wn.find_one({"g": m.chat.id, "u": u.id})
-    await ship(c, m, f"<b>⚠️ ᴡᴀʀɴɪɴɢs</b>\n\n<blockquote>{u.mention}: <b>{(d or {}).get('n', 0)}/{(await cfg(m.chat.id)).get('wl', 3)}</b> ᴡᴀʀɴɪɴɢs.</blockquote>")
+    await ship(c, m, f"<b>⚠️ {smallcaps('warnings')}</b>\n\n<blockquote>{u.mention}: <b>{(d or {}).get('n', 0)}/{(await cfg(m.chat.id)).get('wl', 3)}</b> {smallcaps('warnings.')}</blockquote>")
 
 @app.on_message(filters.command(["unmute", "unban"]) & filters.group)
 async def unrestrict(c, m):
@@ -702,23 +725,23 @@ async def unrestrict(c, m):
     await think(c, m)
     r = m.reply_to_message
     try: uid = r.from_user.id if r and r.from_user else int(m.command[1])
-    except Exception: return await ship(c, m, "<b>❌ ᴜsᴀɢᴇ ᴇʀʀᴏʀ</b>\n\n<blockquote>ʀᴇᴘʟʏ ᴛᴏ ᴛʜᴇ ᴜsᴇʀ, ᴏʀ: <code>/unmute user_id</code></blockquote>")
-    try: await c.unban_chat_member(m.chat.id, uid); await ship(c, m, "<b>✅ ᴅᴏɴᴇ</b>\n\n<blockquote>ʀᴇsᴛʀɪᴄᴛɪᴏɴs ʀᴇᴍᴏᴠᴇᴅ.</blockquote>")
-    except Exception as e: await ship(c, m, f"<b>❌ ꜰᴀɪʟᴇᴅ</b>\n\n<blockquote>{type(e).__name__} (ɪ ɴᴇᴇᴅ ᴛʜᴇ 'ʀᴇsᴛʀɪᴄᴛ ᴍᴇᴍʙᴇʀs' ʀɪɢʜᴛ)</blockquote>")
+    except Exception: return await ship(c, m, f"<b>❌ {smallcaps('usage error')}</b>\n\n<blockquote>{smallcaps('reply to the user, or:')} <code>/unmute user_id</code></blockquote>")
+    try: await c.unban_chat_member(m.chat.id, uid); await ship(c, m, f"<b>✅ {smallcaps('done')}</b>\n\n<blockquote>{smallcaps('restrictions removed.')}</blockquote>")
+    except Exception as e: await ship(c, m, f"<b>❌ {smallcaps('failed')}</b>\n\n<blockquote>{type(e).__name__} ({smallcaps('i need the \\'restrict members\\' right')})</blockquote>")
 
 @app.on_callback_query(filters.regex(r"^u[wb]:"))
 async def undo_cb(c, q):
     a, g, u = q.data.split(":"); g, u = int(g), int(u)
-    if not await is_adm(c, g, q.from_user.id): return await q.answer("ᴀᴅᴍɪɴs ᴏɴʟʏ.", show_alert=True)
+    if not await is_adm(c, g, q.from_user.id): return await q.answer(smallcaps("admins only."), show_alert=True)
     await qanim(q)
     if a == "uw":
         r = await wn.find_one_and_update({"g": g, "u": u, "n": {"$gt": 0}}, {"$inc": {"n": -1}}, return_document=ReturnDocument.AFTER)
-        msg = f"<b>✅ ʀᴇᴍᴏᴠᴇᴅ</b>\n\n<blockquote>ᴏɴᴇ ᴡᴀʀɴɪɴɢ ʀᴇᴍᴏᴠᴇᴅ ({r['n'] if r else 0} ʟᴇꜰᴛ).</blockquote>"
+        msg = f"<b>✅ {smallcaps('removed')}</b>\n\n<blockquote>{smallcaps('one warning removed')} ({r['n'] if r else 0} {smallcaps('left')}).</blockquote>"
     else:
         try: await c.unban_chat_member(g, u)
         except Exception: pass
-        msg = "<b>↩️ ᴜɴᴅᴏɴᴇ</b>\n\n<blockquote>ᴘᴜɴɪsʜᴍᴇɴᴛ ᴜɴᴅᴏɴᴇ.</blockquote>"
-    await q.answer("ᴅᴏɴᴇ")
+        msg = f"<b>↩️ {smallcaps('undone')}</b>\n\n<blockquote>{smallcaps('punishment undone.')}</blockquote>"
+    await q.answer(smallcaps("done"))
     try: await ui_edit(q.message.chat.id, q.message.id, msg)
     except Exception: pass
 
@@ -731,8 +754,8 @@ def allowed(link, wl):
 def dom_view(g, cf):
     ds = cf.get("dom", [])
     if not ds:
-        return ("<b>🔗 ᴀʟʟᴏᴡᴇᴅ ʟɪɴᴋs</b>\n\n<blockquote>ɴᴏ ᴀʟʟᴏᴡᴇᴅ ʟɪɴᴋs ʏᴇᴛ.\nᴀᴅᴅ: <code>/allowlink domain.com</code> ᴏʀ <code>/allowlink t.me/yourchannel</code></blockquote>"), None
-    return ("<b>🔗 ᴀʟʟᴏᴡᴇᴅ ʟɪɴᴋs</b>\n\n<blockquote>ᴀɴᴛɪ-ʟɪɴᴋ ɪɢɴᴏʀᴇs ᴛʜᴇsᴇ ᴅᴏᴍᴀɪɴs.\nᴀᴅᴅ ᴍᴏʀᴇ: <code>/allowlink domain.com</code></blockquote>",
+        return (f"<b>🔗 {smallcaps('allowed links')}</b>\n\n<blockquote>{smallcaps('no allowed links yet.')}\n{smallcaps('add:')} <code>/allowlink domain.com</code> {smallcaps('or')} <code>/allowlink t.me/yourchannel</code></blockquote>"), None
+    return (f"<b>🔗 {smallcaps('allowed links')}</b>\n\n<blockquote>{smallcaps('anti-link ignores these domains.')}\n{smallcaps('add more:')} <code>/allowlink domain.com</code></blockquote>",
             [[R(d[:40], cb=f"dn:{g}:{kh(d)}"), R("🗑", cb=f"dd:{g}:{kh(d)}", s=BTN_COLOR["delete"])] for d in ds])
 
 @app.on_message(filters.command(["allowlink", "allowlinks"]))
@@ -749,11 +772,11 @@ async def allowlink(c, m):
 @app.on_callback_query(filters.regex(r"^d[dn]:"))
 async def dom_cb(c, q):
     a, g, h = q.data.split(":"); g = int(g)
-    if not await can(c, q, g): return await q.answer("ᴀᴅᴍɪɴs ᴏɴʟʏ.", show_alert=True)
+    if not await can(c, q, g): return await q.answer(smallcaps("admins only."), show_alert=True)
     await qanim(q)
     cf = await cfg(g)
     if a == "dd": await cfg_set(g, dom=[d for d in cf.get("dom", []) if kh(d) != h])
-    await q.answer("ʀᴇᴍᴏᴠᴇᴅ" if a == "dd" else None)
+    await q.answer(smallcaps("removed") if a == "dd" else None)
     txt, kb = dom_view(g, cf)
     try: await ui_edit(q.message.chat.id, q.message.id, txt, kb)
     except Exception: pass
@@ -777,9 +800,9 @@ def links_of(m):
 async def report(c, g, m, found):
     u = m.from_user
     ls = "\n".join(f"• <code>{html.escape(x)}</code>" for x in found) or "-"
-    text = (f"🚨 <b>ʟɪɴᴋ ᴅᴇʟᴇᴛᴇᴅ</b>\n<b>ɢʀᴏᴜᴘ:</b> {html.escape(await title(c, g))} (<code>{g}</code>)\n"
-            f"<b>ᴜsᴇʀ:</b> {u.mention}\n<b>ɪᴅ:</b> <code>{u.id}</code>\n"
-            f"<b>ᴜsᴇʀɴᴀᴍᴇ:</b> {'@' + u.username if u.username else 'ɴᴏɴᴇ'}\n<b>ʟɪɴᴋ(s):</b>\n{ls}")
+    text = (f"🚨 <b>{smallcaps('link deleted')}</b>\n<b>{smallcaps('group')}:</b> {html.escape(await title(c, g))} (<code>{g}</code>)\n"
+            f"<b>{smallcaps('user')}:</b> {u.mention}\n<b>{smallcaps('id')}:</b> <code>{u.id}</code>\n"
+            f"<b>{smallcaps('username')}:</b> {'@' + u.username if u.username else smallcaps('none')}\n<b>{smallcaps('link(s)')}:</b>\n{ls}")
     owner = await gc_owner(c, g)
     if owner:
         try: return await c.send_message(owner, text, disable_web_page_preview=True)
@@ -793,7 +816,7 @@ async def punish(c, g, m, why):
     try: await m.delete()
     except Exception as e:
         log.warning("guard: cannot delete in %s (%s) - make the bot admin with 'Delete messages'", g, e); return False
-    note, kb = f"<b>⚠️ ᴅᴇʟᴇᴛᴇᴅ</b>\n\n<blockquote>{m.from_user.mention}, {why}. ʏᴏᴜʀ ᴍᴇssᴀɢᴇ ᴡᴀs ᴅᴇʟᴇᴛᴇᴅ.</blockquote>", None
+    note, kb = f"<b>⚠️ {smallcaps('deleted')}</b>\n\n<blockquote>{m.from_user.mention}, {why}. {smallcaps('your message was deleted.')}</blockquote>", None
     if cf.get("aw"): note, kb = await add_warn(c, g, m.from_user, why)
     asyncio.create_task(tmp(c, g, note, 60, kb))
     return True
@@ -816,16 +839,16 @@ async def guard(c, m):
             except Exception as e: log.warning("flood: cannot mute in %s (%s) - give the bot 'Restrict members'", g, e)
             try: await c.delete_messages(g, ids)
             except Exception: pass
-            asyncio.create_task(tmp(c, g, f"<b>🌊 ꜰʟᴏᴏᴅ ᴍᴜᴛᴇ</b>\n\n<blockquote>{u.mention} ᴡᴀs ᴍᴜᴛᴇᴅ ꜰᴏʀ 10 ᴍɪɴᴜᴛᴇs ꜰᴏʀ ꜰʟᴏᴏᴅɪɴɢ.</blockquote>", 60, [[R("↩️ ᴜɴᴅᴏ", cb=f"ub:{g}:{u.id}")]]))
+            asyncio.create_task(tmp(c, g, f"<b>🌊 {smallcaps('flood mute')}</b>\n\n<blockquote>{u.mention} {smallcaps('was muted for 10 minutes for flooding.')}</blockquote>", 60, [[R(f"↩️ {smallcaps('undo')}", cb=f"ub:{g}:{u.id}")]]))
             if cf.get("aw"):
-                wt, wk = await add_warn(c, g, u, "ꜰʟᴏᴏᴅɪɴɢ"); asyncio.create_task(tmp(c, g, wt, 60, wk))
+                wt, wk = await add_warn(c, g, u, smallcaps("flooding")); asyncio.create_task(tmp(c, g, wt, 60, wk))
             m.stop_propagation()
     fwd = getattr(m, "forward_date", None) or getattr(m, "forward_from_chat", None) or getattr(m, "forward_sender_name", None)
-    if cf.get("af") and fwd and await punish(c, g, m, "ꜰᴏʀᴡᴀʀᴅᴇᴅ ᴍᴇssᴀɢᴇs ᴀʀᴇ ɴᴏᴛ ᴀʟʟᴏᴡᴇᴅ ʜᴇʀᴇ"): m.stop_propagation()
-    if cf.get("am") and any(e.type == E.MENTION for e in ents) and await punish(c, g, m, "@ᴍᴇɴᴛɪᴏɴs ᴀʀᴇ ɴᴏᴛ ᴀʟʟᴏᴡᴇᴅ ʜᴇʀᴇ"): m.stop_propagation()
+    if cf.get("af") and fwd and await punish(c, g, m, smallcaps("forwarded messages are not allowed here")): m.stop_propagation()
+    if cf.get("am") and any(e.type == E.MENTION for e in ents) and await punish(c, g, m, smallcaps("@mentions are not allowed here")): m.stop_propagation()
     if cf.get("al") and any(e.type in (E.URL, E.TEXT_LINK) for e in ents):
         bad = [x for x in links_of(m) if not allowed(x, cf.get("dom", []))]
-        if bad and await punish(c, g, m, "ʟɪɴᴋs ᴀʀᴇ ɴᴏᴛ ᴀʟʟᴏᴡᴇᴅ ʜᴇʀᴇ"):
+        if bad and await punish(c, g, m, smallcaps("links are not allowed here")):
             asyncio.create_task(report(c, g, m, bad)); m.stop_propagation()
 
 @app.on_message(filters.group & (filters.new_chat_members | filters.left_chat_member), group=10)
@@ -835,7 +858,7 @@ async def del_service(c, m):
 
 WEL_VARS = "{first} {last} {fullname} {mention} {username} {id} {group} {count}"
 WS = [0, 60, 300, 600]
-def fmt_s(s): return "ᴏꜰꜰ" if not s else f"{s // 60}ᴍ"
+def fmt_s(s): return smallcaps("off") if not s else f"{s // 60}{smallcaps('m')}"
 
 async def wel_text(c, t, users, chat):
     if not t: return t
@@ -854,25 +877,25 @@ async def wel_text(c, t, users, chat):
 async def wel_view(c, g):
     w = await wc.find_one({"_id": g}) or {}
     has = bool(w.get("t") or w.get("fid"))
-    t = "<b>👋 ᴡᴇʟᴄᴏᴍᴇ ᴍᴇssᴀɢᴇ</b>\n\n"
+    t = f"<b>👋 {smallcaps('welcome message')}</b>\n\n"
     if has:
-        t += f"<blockquote>sᴛᴀᴛᴜs: {'✅ ᴏɴ' if w.get('on') else '⛔ ᴏꜰꜰ'} | ᴛʏᴘᴇ: {smallcaps(w.get('ft') or 'text')}\nʙᴜᴛᴛᴏɴs: {sum(len(r) for r in w.get('b') or [])} | ᴀᴜᴛᴏ-ᴅᴇʟᴇᴛᴇ: {fmt_s(w.get('ad', 0))}</blockquote>\n"
+        t += f"<blockquote>{smallcaps('status')}: {'✅ ' + smallcaps('on') if w.get('on') else ' ' + smallcaps('off')} | {smallcaps('type')}: {smallcaps(w.get('ft') or 'text')}\n{smallcaps('buttons')}: {sum(len(r) for r in w.get('b') or [])} | {smallcaps('auto-delete')}: {fmt_s(w.get('ad', 0))}</blockquote>\n"
     else:
-        t += "<blockquote>ɴᴏ ᴡᴇʟᴄᴏᴍᴇ ᴍᴇssᴀɢᴇ sᴇᴛ ʏᴇᴛ.</blockquote>\n"
-    t += ("\n<blockquote>ᴛᴀᴘ <b>✏️ sᴇᴛ / ᴄʜᴀɴɢᴇ</b>, ᴛʜᴇɴ sᴇɴᴅ ᴍᴇ ᴛʜᴇ ᴡᴇʟᴄᴏᴍᴇ.\n"
-          f"ᴠᴀʀɪᴀʙʟᴇs: <code>{WEL_VARS}</code>\nʙᴜᴛᴛᴏɴs: <code>[Join](buttonurl:https://t.me/x)</code> (ᴀᴅᴅ <code>:same</code> <code>:red</code> <code>:green</code> <code>:blue</code>)</blockquote>")
-    rows = [[R("✏️ sᴇᴛ / ᴄʜᴀɴɢᴇ", cb=f"wl:{g}:set", s=BTN_COLOR["set"])]]
+        t += f"<blockquote>{smallcaps('no welcome message set yet.')}</blockquote>\n"
+    t += (f"\n<blockquote>{smallcaps('tap')} <b>️ {smallcaps('set / change')}</b>, {smallcaps('then send me the welcome.')}\n"
+          f"{smallcaps('variables')}: <code>{WEL_VARS}</code>\n{smallcaps('buttons')}: <code>[Join](buttonurl:https://t.me/x)</code> ({smallcaps('add')} <code>:same</code> <code>:red</code> <code>:green</code> <code>:blue</code>)</blockquote>")
+    rows = [[R(f"✏️ {smallcaps('set / change')}", cb=f"wl:{g}:set", s=BTN_COLOR["set"])]]
     if has:
-        rows += [[R("👁 ᴘʀᴇᴠɪᴇᴡ", cb=f"wl:{g}:prev"), R("🔛 ᴏɴ / ᴏꜰꜰ", cb=f"wl:{g}:tog")],
-                 [R(f"⏱ ᴀᴜᴛᴏ-ᴅᴇʟᴇᴛᴇ: {fmt_s(w.get('ad', 0))}", cb=f"wl:{g}:ad"), R("🗑 ʀᴇᴍᴏᴠᴇ", cb=f"wl:{g}:rm", s=BTN_COLOR["delete"])]]
+        rows += [[R(f"👁 {smallcaps('preview')}", cb=f"wl:{g}:prev"), R(f"🔛 {smallcaps('on / off')}", cb=f"wl:{g}:tog")],
+                 [R(f"⏱ {smallcaps('auto-delete')}: {fmt_s(w.get('ad', 0))}", cb=f"wl:{g}:ad"), R(f"🗑 {smallcaps('remove')}", cb=f"wl:{g}:rm", s=BTN_COLOR["delete"])]]
     return t, rows
 
 @app.on_message(filters.command("setwel"))
 async def setwel(c, m):
     if m.chat.type in GRP:
         await think(c, m)
-        return await ship(c, m, "<b>👋 ᴡᴇʟᴄᴏᴍᴇ ᴇᴅɪᴛᴏʀ</b>\n\n<blockquote>sᴇᴛ ᴛʜᴇ ᴡᴇʟᴄᴏᴍᴇ ᴍᴇssᴀɢᴇ ɪɴ ᴍʏ ᴘᴍ 👇</blockquote>",
-                          [[R("ᴏᴘᴇɴ ᴘᴍ", url=f"https://t.me/{c.me.username}?start=setwel", s="primary")]])
+        return await ship(c, m, f"<b>👋 {smallcaps('welcome editor')}</b>\n\n<blockquote>{smallcaps('set the welcome message in my pm ')}</blockquote>",
+                          [[R(smallcaps("open pm"), url=f"https://t.me/{c.me.username}?start=setwel", s="primary")]])
     g = await target(c, m)
     if g is None: return
     await think(c, m)
@@ -882,13 +905,13 @@ async def setwel(c, m):
 @app.on_callback_query(filters.regex(r"^wl:"))
 async def wel_cb(c, q):
     _, g, a = q.data.split(":"); g = int(g)
-    if not await can(c, q, g): return await q.answer("ᴀᴅᴍɪɴs ᴏɴʟʏ.", show_alert=True)
+    if not await can(c, q, g): return await q.answer(smallcaps("admins only."), show_alert=True)
     w = await wc.find_one({"_id": g}) or {}
     if a == "set":
         await qanim(q)
         PEND[q.from_user.id] = g
         await q.answer()
-        await q.message.reply_text("<b>✏️ ᴇᴅɪᴛɪɴɢ</b>\n\n<blockquote>sᴇɴᴅ ᴍᴇ ᴛʜᴇ ɴᴇᴡ ᴡᴇʟᴄᴏᴍᴇ ᴍᴇssᴀɢᴇ ɴᴏᴡ - ᴛᴇxᴛ, ᴏʀ ᴀ ᴘʜᴏᴛᴏ/ᴠɪᴅᴇᴏ/ɢɪꜰ ᴡɪᴛʜ ᴀ ᴄᴀᴘᴛɪᴏɴ.\nʙᴜᴛᴛᴏɴs: <code>[Name](buttonurl:https://...)</code>\nsᴇɴᴅ /cancel ᴛᴏ sᴛᴏᴘ.</blockquote>")
+        await q.message.reply_text(f"<b>✏️ {smallcaps('editing')}</b>\n\n<blockquote>{smallcaps('send me the new welcome message now - text, or a photo/video/gif with a caption.')}\n{smallcaps('buttons:')} <code>[Name](buttonurl:https://...)</code>\n{smallcaps('send /cancel to stop.')}</blockquote>")
         txt, rows = await wel_view(c, g)
         try: await ui_edit(q.message.chat.id, q.message.id, txt, rows)
         except Exception: pass
@@ -921,7 +944,7 @@ pend = filters.create(_pend)
 async def cancel(c, m):
     await think(c, m, ticks=2, delay=0.3)
     PEND.pop(m.from_user.id, None)
-    await ship(c, m, "<b>❌ ᴄᴀɴᴄᴇʟʟᴇᴅ</b>")
+    await ship(c, m, f"<b>❌ {smallcaps('cancelled')}</b>")
 
 @app.on_message(filters.private & pend & ~filters.regex(r"^/"), group=2)
 async def wel_capture(c, m):
@@ -933,11 +956,11 @@ async def wel_capture(c, m):
     t, b = parse(body.html if body else "")
     kb = getattr(m.reply_markup, "inline_keyboard", None)
     if kb: b = [r for r in ([{"text": x.text, "url": x.url} for x in row if getattr(x, "url", None)] for row in kb) if r] + b
-    if not t and not fid: PEND[uid] = g; return await m.reply_text("<b>❌ ɪɴᴠᴀʟɪᴅ ɪɴᴘᴜᴛ</b>\n\n<blockquote>sᴇɴᴅ ᴛᴇxᴛ, ᴏʀ ᴍᴇᴅɪᴀ ᴡɪᴛʜ ᴀ ᴄᴀᴘᴛɪᴏɴ.</blockquote>")
-    if fid and ft not in ("sticker", "video_note") and len(t) > 1024: PEND[uid] = g; return await m.reply_text("<b>❌ ᴛᴏᴏ ʟᴏɴɢ</b>\n\n<blockquote>ᴄᴀᴘᴛɪᴏɴ ᴍᴀx ɪs 1024 ᴄʜᴀʀᴀᴄᴛᴇʀs - sᴇɴᴅ ᴀ sʜᴏʀᴛᴇʀ ᴏɴᴇ.</blockquote>")
+    if not t and not fid: PEND[uid] = g; return await m.reply_text(f"<b>❌ {smallcaps('invalid input')}</b>\n\n<blockquote>{smallcaps('send text, or media with a caption.')}</blockquote>")
+    if fid and ft not in ("sticker", "video_note") and len(t) > 1024: PEND[uid] = g; return await m.reply_text(f"<b>❌ {smallcaps('too long')}</b>\n\n<blockquote>{smallcaps('caption max is 1024 characters - send a shorter one.')}</blockquote>")
     await wc.update_one({"_id": g}, {"$set": {"t": t, "ft": ft, "fid": fid, "b": b, "on": True}}, upsert=True)
     txt, rows = await wel_view(c, g)
-    await m.reply_text("<b>✅ sᴀᴠᴇᴅ</b>\n\n<blockquote>ᴡᴇʟᴄᴏᴍᴇ ᴍᴇssᴀɢᴇ sᴀᴠᴇᴅ!</blockquote>")
+    await m.reply_text(f"<b>✅ {smallcaps('saved')}</b>\n\n<blockquote>{smallcaps('welcome message saved!')}</blockquote>")
     await ui_send(m.chat.id, txt, rows, reply_id=m.id)
     m.stop_propagation()
 
@@ -980,7 +1003,7 @@ async def listen(c, m):
             d = await fl.find_one({"g": g, "k": k})
             if d:
                 await c.send_chat_action(g, ChatAction.TYPING)
-                loader = await c.send_message(g, "<b><i>ꜰɪɴᴅɪɴɢ...</i></b>", reply_to_message_id=m.id)
+                loader = await c.send_message(g, f"<b><i>{smallcaps('finding...')}</i></b>", reply_to_message_id=m.id)
                 await asyncio.sleep(0.8)
                 try: await loader.delete()
                 except Exception: pass
@@ -1009,8 +1032,8 @@ async def bsend(msg, cid):
 @app.on_message(filters.command("broadcast"))
 async def broadcast(c, m):
     if not (m.from_user and sudo(m.from_user.id)): return
-    if not m.reply_to_message: return await m.reply_text("<b>❌ ʀᴇᴘʟʏ ᴍɪssɪɴɢ</b>\n\n<blockquote>ʀᴇᴘʟʏ ᴛᴏ ᴛʜᴇ ᴍᴇssᴀɢᴇ ʏᴏᴜ ᴡᴀɴᴛ ᴛᴏ ʙʀᴏᴀᴅᴄᴀsᴛ ᴡɪᴛʜ /broadcast</blockquote>")
-    s = await think(c, m, "ʙʀᴏᴀᴅᴄᴀsᴛɪɴɢ", ttl=3600)
+    if not m.reply_to_message: return await m.reply_text(f"<b>❌ {smallcaps('reply missing')}</b>\n\n<blockquote>{smallcaps('reply to the message you want to broadcast with /broadcast')}</blockquote>")
+    s = await think(c, m, "broadcasting", ttl=3600)
     ids = [d["_id"] async for d in ch.find()]
     ok = 0
     for i in ids:
@@ -1018,7 +1041,7 @@ async def broadcast(c, m):
         await asyncio.sleep(0.3)
     LD.pop((m.chat.id, m.from_user.id), None)
     if s:
-        try: await ui_edit(m.chat.id, s.id, f"<b>✅ ᴅᴏɴᴇ</b>\n\n<blockquote>ʙʀᴏᴀᴅᴄᴀsᴛ ᴅᴏɴᴇ: ✅ {ok} sᴇɴᴛ, ❌ {len(ids) - ok} ꜰᴀɪʟᴇᴅ.</blockquote>")
+        try: await ui_edit(m.chat.id, s.id, f"<b>✅ {smallcaps('done')}</b>\n\n<blockquote>{smallcaps('broadcast done')}: ✅ {ok} {smallcaps('sent')}, ❌ {len(ids) - ok} {smallcaps('failed.')}</blockquote>")
         except Exception: pass
 
 @app.on_message(filters.command("stats"))
@@ -1026,25 +1049,27 @@ async def stats(c, m):
     if not (m.from_user and sudo(m.from_user.id)): return
     await think(c, m)
     g, h = await ch.count_documents({"type": "group"}), await ch.count_documents({"type": "channel"})
-    await ship(c, m, f"<b>📊 ʙᴏᴛ sᴛᴀᴛɪsᴛɪᴄs</b>\n\n<blockquote>ɢʀᴏᴜᴘs: {g}\nᴄʜᴀɴɴᴇʟs: {h}\nꜰɪʟᴛᴇʀs: {await fl.count_documents({})}\nᴀᴅᴍɪɴs: {len(ADMINS)}</blockquote>")
+    await ship(c, m, f"<b>📊 {smallcaps('bot statistics')}</b>\n\n<blockquote>{smallcaps('groups')}: {g}\n{smallcaps('channels')}: {h}\n{smallcaps('filters')}: {await fl.count_documents({})}\n{smallcaps('admins')}: {len(ADMINS)}</blockquote>")
 
 @app.on_message(filters.command(["addadmin", "rmadmin"]))
 async def admin_cmd(c, m):
     if not m.from_user or m.from_user.id != OWNER: return
     r = m.reply_to_message
     try: u = r.from_user.id if r and r.from_user else int(m.command[1])
-    except Exception: return await m.reply_text("<b>❌ ᴜsᴀɢᴇ ᴇʀʀᴏʀ</b>\n\n<blockquote>ᴜsᴀɢᴇ: /addadmin ᴜsᴇʀ_ɪᴅ (ᴏʀ ʀᴇᴘʟʏ ᴛᴏ ᴀ ᴜsᴇʀ)</blockquote>")
+    except Exception: return await m.reply_text(f"<b>❌ {smallcaps('usage error')}</b>\n\n<blockquote>{smallcaps('usage: /addadmin user_id (or reply to a user)')}</blockquote>")
     await think(c, m, ticks=2, delay=0.3)
     add = m.command[0] == "addadmin"
     if add: await ad.update_one({"_id": u}, {"$set": {"a": 1}}, upsert=True); ADMINS.add(u)
     else: await ad.delete_one({"_id": u}); ADMINS.discard(u)
-    await ship(c, m, f"<b>✅ ᴜᴘᴅᴀᴛᴇᴅ</b>\n\n<blockquote>{'ᴀᴅᴅᴇᴅ' if add else 'ʀᴇᴍᴏᴠᴇᴅ'} ᴀᴅᴍɪɴ <code>{u}</code></blockquote>")
+    status = smallcaps("added") if add else smallcaps("removed")
+    await ship(c, m, f"<b>✅ {smallcaps('updated')}</b>\n\n<blockquote>{status} {smallcaps('admin')} <code>{u}</code></blockquote>")
 
 @app.on_message(filters.command("admins"))
 async def admins(c, m):
     if m.from_user and sudo(m.from_user.id):
         await think(c, m, ticks=2, delay=0.3)
-        await ship(c, m, f"<b>👑 ᴀᴅᴍɪɴ ʟɪsᴛ</b>\n\n<blockquote>ᴏᴡɴᴇʀ: <code>{OWNER}</code>\nᴀᴅᴍɪɴs: " + (", ".join(f"<code>{a}</code>" for a in ADMINS) or "ɴᴏɴᴇ") + "</blockquote>")
+        admin_list = ", ".join(f"<code>{a}</code>" for a in ADMINS) or smallcaps("none")
+        await ship(c, m, f"<b>👑 {smallcaps('admin list')}</b>\n\n<blockquote>{smallcaps('owner')}: <code>{OWNER}</code>\n{smallcaps('admins')}: {admin_list}</blockquote>")
 
 async def web_start():
     a = web.Application()
