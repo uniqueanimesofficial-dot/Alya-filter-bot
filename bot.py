@@ -236,7 +236,7 @@ def sc_html(t):
     for n in range(0, len(parts), 2): parts[n] = smallcaps(parts[n])
     return "".join(parts)
 
-BACK = lambda: [[R(smallcaps("◀️ back"), cb="sb:back", s=BTN_COLOR["back"])]]
+BACK = lambda: [[R(smallcaps("◀ back"), cb="sb:back", s=BTN_COLOR["back"])]]
 
 async def send_start(c, chat, img, caption, kb, reply_id=None):
     if is_url(img):
