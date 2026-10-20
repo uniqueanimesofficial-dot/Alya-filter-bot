@@ -918,12 +918,26 @@ async def setflood(c, m):
     await cfg_set(g, fn=n, ft=t)
     await ship(c, m, f"<b>✅ {smallcaps('updated')}</b>\n\n<blockquote>{smallcaps('flood limit')}: {n} {smallcaps('messages in')} {t} {smallcaps('seconds.')}</blockquote>")
 
+BG = set()
+def bg(coro):
+    t = asyncio.create_task(coro); BG.add(t)
+    def done(x):
+        BG.discard(x)
+        if not x.cancelled() and x.exception(): log.error("background task failed: %r", x.exception())
+    t.add_done_callback(done); return t
+
 async def tmp(c, g, text, secs=60, rows=None):
-    try:
-        mid = await ui_send(g, text, rows)
-        await asyncio.sleep(secs)
-        try: await c.delete_messages(g, mid)
-        except Exception: pass
+    mid = None
+    try: mid = await ui_send(g, text, rows)
+    except Exception as e:
+        log.warning("notice via bot api failed in %s (%s) - trying pyrogram", g, e)
+        try: mid = (await c.send_message(g, text, disable_web_page_preview=True)).id
+        except Exception as e2:
+            log.error("cannot send notice in %s: %s | %s - give the bot the 'send messages' right", g, e, e2)
+            try: mid = (await c.send_message(g, plain(text) or ".")).id
+            except Exception: return
+    await asyncio.sleep(secs)
+    try: await c.delete_messages(g, mid)
     except Exception: pass
 
 async def add_warn(c, g, u, why):
@@ -1084,7 +1098,9 @@ async def gc_admins(c, g):
         except Exception as e: log.warning("cannot list admins of %s: %s", g, e)
         ADMC[g] = (ids, time.time())
     ids.add(OWNER); ids.update(ADMINS)
-    ids.update([d["_id"] async for d in cn.find({"groups": g})])
+    ids.update([d["_id"] async for d in cn.find({"groups": g})])          # who /connect-ed this group
+    by = (await ch.find_one({"_id": g}) or {}).get("by")                   # who added the bot to it
+    if by: ids.add(by)
     return ids
 
 async def report(c, g, m, found):
@@ -1103,11 +1119,13 @@ async def report(c, g, m, found):
             f"<blockquote><b>{smallcaps('link(s)')}:</b>\n{ls}\n\n<b>{smallcaps('message')}:</b>\n{body}</blockquote>")
     rows = [[R(f"🔇 {smallcaps('mute')}", cb=f"lk:m:{g}:{u.id}", s="primary"), R(f"🚫 {smallcaps('ban')}", cb=f"lk:b:{g}:{u.id}", s="danger")],
             [R(f"👤 {smallcaps('open profile')}", url=f"tg://user?id={u.id}")]]
-    sent = 0
-    for uid in await gc_admins(c, g):
+    sent, ids = 0, await gc_admins(c, g)
+    for uid in ids:
         try: await ui_send(uid, text, rows); sent += 1
-        except Exception: pass
-    log.info("link report for %s in %s sent to %s admin(s)", u.id, g, sent)
+        except Exception as e: log.warning("link report: cannot PM %s (%s) - that person must press Start in my PM", uid, e)
+    log.info("link report for %s in %s sent to %s of %s people", u.id, g, sent, len(ids))
+    if not sent:
+        bg(tmp(c, g, f"<b>⚠️ {smallcaps('alert not delivered')}</b>\n\n<blockquote>{smallcaps('i could not pm any admin. admins must open my pm and press start, then use /connect in this group.')}</blockquote>", 30))
 
 @cbq(r"^lk:")
 async def lk_cb(c, q):
@@ -1129,9 +1147,12 @@ async def punish(c, g, m, why):
     try: await m.delete()
     except Exception as e:
         log.warning("guard: cannot delete in %s (%s) - make the bot admin with 'Delete messages'", g, e); return False
-    note, kb = f"<b>⚠️ {smallcaps('deleted')}</b>\n\n<blockquote>{m.from_user.mention}, {why}. {smallcaps('your message was deleted.')}</blockquote>", None
-    if cf.get("aw"): note, kb = await add_warn(c, g, m.from_user, why)
-    asyncio.create_task(tmp(c, g, note, 60, kb))
+    note, kb = f"<b>⚠️ {smallcaps('warning')}</b>\n\n<blockquote>{m.from_user.mention}, {why}. {smallcaps('your message was deleted.')}</blockquote>", None
+    if cf.get("aw"):
+        try: note, kb = await add_warn(c, g, m.from_user, why)
+        except Exception as e: log.error("add_warn failed in %s: %s", g, e)
+    log.info("guard: deleted a message of %s in %s (%s)", m.from_user.id, g, plain(why))
+    bg(tmp(c, g, note, 60, kb))
     L("mod", f"<b>🛡 {smallcaps('message deleted')}</b>\n\n<blockquote>{smallcaps('group')}: {html.escape(m.chat.title or '')} (<code>{g}</code>)\n{smallcaps('user')}: {m.from_user.mention} (<code>{m.from_user.id}</code>)\n{smallcaps('reason')}: {why}</blockquote>")
     return True
 
@@ -1164,7 +1185,7 @@ async def guard(c, m):
     if cf.get("al") and any(e.type in (E.URL, E.TEXT_LINK) for e in ents):
         bad = [x for x in links_of(m) if not allowed(x, cf.get("dom", []))]
         if bad and await punish(c, g, m, smallcaps("links are not allowed here")):
-            asyncio.create_task(report(c, g, m, bad)); m.stop_propagation()
+            bg(report(c, g, m, bad)); m.stop_propagation()
 
 @app.on_message(filters.group & filters.service, group=10)
 async def del_service(c, m):
@@ -1399,7 +1420,7 @@ async def tracker(c, u):
     who = u.from_user.mention + f" (<code>{u.from_user.id}</code>)" if u.from_user else smallcaps("unknown")
     if n and n.status not in (S.LEFT, S.BANNED):
         new = not await ch.find_one({"_id": u.chat.id})
-        await ch.update_one({"_id": u.chat.id}, {"$set": {"type": "channel" if u.chat.type == T.CHANNEL else "group", "title": u.chat.title}}, upsert=True)
+        await ch.update_one({"_id": u.chat.id}, {"$set": {"type": "channel" if u.chat.type == T.CHANNEL else "group", "title": u.chat.title, **({"by": u.from_user.id} if u.from_user and not u.from_user.is_bot else {})}}, upsert=True)
         if new:
             try: cnt = await c.get_chat_members_count(u.chat.id)
             except Exception: cnt = "?"
