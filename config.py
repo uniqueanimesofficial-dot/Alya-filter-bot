@@ -65,10 +65,11 @@ PREMIUM_EMOJIS = {
     "wave": ("5368324170671202286", "👋"),
     "fire": ("5431449001695289639", "🔥"),
     "settings": ("5318940267334622539", "⚙️"),
-    "heart": ("", "❤️"),   # add your ID (or use /addemoji in the bot)
-    "crown": ("", "👑"),   # add your ID (or use /addemoji in the bot)
-    "check": ("", "✅"),   # add your ID (or use /addemoji in the bot)
-    "back":(5447651546613449378", "◀")
+    "heart": ("5388790256772331442", "❤️"),   # add your ID (or use /addemoji in the bot)
+    "crown": ("6088924467810015164", "👑"),   # add your ID (or use /addemoji in the bot)
+    "check": ("5447153029759397673", "✅"),   # add your ID (or use /addemoji in the bot)
+    "back":("5447651546613449378", "◀"),
+    "note":("5956561916573782596", "📋")
 }
 
 # Normal emoji -> premium (custom) emoji ID. Every bot menu/reply automatically swaps
