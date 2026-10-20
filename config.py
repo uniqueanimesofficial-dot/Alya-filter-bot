@@ -25,8 +25,7 @@ MAINTAINER_URL = "https://t.me/PrimeCoreHQ"
 
 # Start menu images (Direct URLs for preview mode, or Telegram File IDs)
 START_IMGS = [
-    "https://i.ibb.co/237ZFmGc/c-VVvvq-Pc.jpg",
-    "https://i.ibb.co/Bvg3P2t/NJk-Mma6j.jpg",
+    "https://i.ibb.co/237ZFmGc/c-VVvvq-Pc.jpg", "https://i.ibb.co/Bvg3P2t/NJk-Mma6j.jpg", "https://i.ibb.co/JFM7ptss/uq-X5-CAUy.jpg", "https://i.ibb.co/tM1fHz1g/WLlz5wpd.jpg"
     # Add your other ibb links here
 ]
 
