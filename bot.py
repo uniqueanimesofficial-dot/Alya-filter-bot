@@ -148,7 +148,7 @@ async def _ttl(msg, ttl):
     try: await msg.delete()
     except Exception: pass
 
-async def think(c, m, base="ᴡᴀɪᴛ  sᴇᴄ", emojis=None, ticks=3, delay=0.4, ttl=10):
+async def think(c, m, base="ᴡᴀɪᴛ ᴀ sᴇᴄ", emojis=None, ticks=3, delay=0.4, ttl=10):
     if not m.from_user: return None
     msg = None
     for i in range(1, ticks + 1):
@@ -173,7 +173,7 @@ async def ship(c, m, text=None, rows=None):
     if m.from_user: await clear_ld(c, m.chat.id, m.from_user.id)
     return await ui_send(m.chat.id, text, rows, reply_id=m.id)
 
-async def qanim(q, base="ᴡᴀɪᴛ  sᴇᴄ", ticks=3, delay=0.3):
+async def qanim(q, base="ᴡᴀɪᴛ ᴀ sᴇᴄ", ticks=3, delay=0.3):
     for i in range(1, ticks + 1):
         body = f"<b><i>{base}{'.' * i}</i></b>"
         try:
