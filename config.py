@@ -23,6 +23,10 @@ BOT_NAME = "ALYA"
 MAINTAINER = "Pʀɨʍɛ ƈօʀɛ"
 MAINTAINER_URL = "https://t.me/PrimeCoreHQ"
 
+# Log channel: ID of a channel/group where the bot posts logs (bot started, new users, new groups,
+# filters triggered, filters saved/deleted, moderation). Leave 0 and use /setlog in the bot instead.
+LOG_CHANNEL = int(os.environ.get("LOG_CHANNEL", "0") or 0)
+
 # Start menu images (Direct URLs for preview mode, or Telegram File IDs)
 START_IMGS = [
     "https://i.ibb.co/237ZFmGc/c-VVvvq-Pc.jpg", "https://i.ibb.co/Bvg3P2t/NJk-Mma6j.jpg", "https://i.ibb.co/JFM7ptss/uq-X5-CAUy.jpg", "https://i.ibb.co/tM1fHz1g/WLlz5wpd.jpg"
@@ -139,18 +143,24 @@ HELP_TEXT = """<b>🤖 filter bot</b>
 • <code>/settings</code> - protection panel (anti-link, flood, etc.)
 • <code>/allowlink</code> domain.com - links that anti-link ignores
 • <code>/warn</code> (reply) reason | <code>/unwarn</code> | <code>/warns</code>
-• <code>/setwel</code> - welcome message editor (pm only)</blockquote>
+• <code>/setwel</code> - welcome message editor (pm only)
+• <code>/export</code> - save filters as a file | <code>/import</code> (reply to it) [replace]
+• <code>/copyfilters</code> -100id - copy filters from another group
+• <code>/smallcaps</code> on|off - small caps text in this group</blockquote>
 
 <blockquote expandable><b>⚙️ filter modes & buttons</b>
 • <code>regex:^hi</code> or <code>contains:price</code> (default = whole word)
 • reply to a post (media + buttons) with <code>/filter any words</code>
 • buttons: <code>[Name](buttonurl:https://x.com)</code>
   add <code>:same</code> (same row), <code>:red</code> <code>:green</code> <code>:blue</code>
-• <code>/color</code> word red green - set button colours</blockquote>
+• <code>/color</code> word red green - set button colours
+• close matches ("blue" for filter "blue box") are offered as buttons
+• bot owner's filters: buttons are blue, green, blue, green... by default</blockquote>
 
 <blockquote expandable><b>👑 bot owner / admins</b>
 • <code>/broadcast</code> (reply) | <code>/stats</code> | <code>/addadmin</code> id | <code>/rmadmin</code> id
 • <code>/addemoji</code> (send or reply with premium emojis) | <code>/emojis</code> | <code>/delemoji</code> emoji
+• <code>/setlog</code> -100id - log channel | <code>/logs</code> - choose what is logged
 • <code>/info</code> - view user info</blockquote>
 """
 
