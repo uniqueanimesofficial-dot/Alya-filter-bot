@@ -20,7 +20,7 @@ from config import (
 logging.basicConfig(level=logging.INFO); log = logging.getLogger("fb")
 
 db = AsyncIOMotorClient(MONGO_URI)[DB_NAME]
-fl, cn, ch, ad, st, wc, wn = db.filters, db.connections, db.chats, db.admins, db.settings, db.welcome, db.warns
+fl, cn, ch, ad, st, wc, wn, em = db.filters, db.connections, db.chats, db.admins, db.settings, db.welcome, db.warns, db.emojis
 app = Client("fb", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN, parse_mode=ParseMode.HTML, in_memory=True)
 
 GRP = (T.GROUP, T.SUPERGROUP)
@@ -39,8 +39,8 @@ def pe(name):
     """Helper to easily use Premium Emojis defined in config.py"""
     data = PREMIUM_EMOJIS.get(name)
     if not data: return "✨"
-    eid, fallback = data
-    return f'<tg-emoji emoji-id="{eid}">{fallback}</tg-emoji>'
+    # pz() swaps it for the premium version (config IDs + ones saved with /addemoji)
+    return data[1]
 
 def greet():
     h = datetime.now().hour
@@ -53,7 +53,10 @@ def start_txt(u):
     return (f"{smallcaps('hey')} {smallcaps(u.first_name or 'friend')} ツ, {greet()} {pe('wave')}\n\n"
             f"{smallcaps('i am the most powerful auto filter bot with premium features,')}\n"
             f"{smallcaps('just add me to your group and enjoy!')} {pe('fire')}\n\n"
-            f'<blockquote>▶ <b>{smallcaps("maintained by")} :</b> <a href="{MAINTAINER_URL}">{MAINTAINER}</a> ❞</blockquote>')
+            f"{maint_txt()}")
+
+def maint_txt():
+    return f'<blockquote>▶ <b>{smallcaps("maintained by")} :</b> <a href="{MAINTAINER_URL}">{MAINTAINER}</a> ❞</blockquote>'
 
 # ------------------------------------------- raw Bot API layer
 def R(text, cb=None, url=None, s=None):
@@ -99,15 +102,26 @@ def _strip_pe(t):
     return re.sub(r'<tg-emoji[^>]*>(.*?)</tg-emoji>', r'\1', t or "")
 
 _PE_SKIP = re.compile(r'(<tg-emoji[^>]*>.*?</tg-emoji>|<code>.*?</code>|<pre>.*?</pre>|<[^>]+>)', re.S)
-_PE_RX = re.compile("|".join(re.escape(e) for e in sorted((e for e, i in EMOJI_IDS.items() if i), key=len, reverse=True)) or r"(?!x)x")
-_PE_ID = {e: i for e, i in EMOJI_IDS.items() if i}
+_PE_ID, _PE_RX = {}, re.compile(r"(?!x)x")
+
+def pe_load(extra=None):
+    """(Re)build the emoji -> premium ID map from config + emojis saved with /addemoji."""
+    global _PE_RX
+    _PE_ID.clear()
+    for d in (EMOJI_IDS, {f: i for i, f in PREMIUM_EMOJIS.values()}, extra or {}):
+        for e, i in d.items():
+            if not (e and i): continue
+            b = e.replace("\ufe0f", "")
+            for v in {e, b, b + "\ufe0f"}: _PE_ID[v] = str(i)
+    _PE_RX = re.compile("|".join(re.escape(e) for e in sorted(_PE_ID, key=len, reverse=True)) or r"(?!x)x")
+pe_load()
 
 def pz(t):
     """Swap normal emojis for premium ones (EMOJI_IDS in config), skipping tags/code."""
     if not t or not _PE_ID: return t
-    parts = _PE_SKIP.split(t)
+    parts, rx, ids = _PE_SKIP.split(t), _PE_RX, _PE_ID
     for n in range(0, len(parts), 2):
-        parts[n] = _PE_RX.sub(lambda x: f'<tg-emoji emoji-id="{_PE_ID[x[0]]}">{x[0]}</tg-emoji>', parts[n])
+        parts[n] = rx.sub(lambda x: f'<tg-emoji emoji-id="{ids[x[0]]}">{x[0]}</tg-emoji>', parts[n])
     return "".join(parts)
 
 async def pe_post(method, pl, key):
@@ -209,14 +223,26 @@ async def edit_any(chat, mid, text, rows=None):
     except RuntimeError as e:
         if "not modified" not in str(e).lower(): raise
 
-def start_kb(idx, uname):
+def start_kb(idx, uname, sid=0):
     c = BTN_COLOR
     return [
-        [R(ch, cb=f"sb:img:{idx}", s=c["letters"]) for ch in smallcaps(BOT_NAME)],
+        [R(ch, cb=f"sb:img:{idx}:{sid}", s=c["letters"]) for ch in smallcaps(BOT_NAME)],
         [R(smallcaps("add me to your group"), url=f"https://t.me/{uname}?startgroup=true", s=c["add_group"])],
         [R(smallcaps("commands"), cb="sb:help", s=c["commands"]), R(smallcaps("settings"), cb="sb:set", s=c["settings"])],
         [R(smallcaps("connections"), cb="sb:conn", s=c["connections"]), R(smallcaps("about"), cb="sb:about", s=c["about"])],
+        [R(ch, cb=f"sb:x:{sid}", s=c.get("close", "red")) for ch in smallcaps("close")],
     ]
+
+# start-screen message id -> the user's /start message id (so ✕ close can delete both)
+SRC = {}
+def sid_of(q, v=""):
+    return int(v) if v.isdigit() and int(v) else SRC.get((q.message.chat.id, q.message.id), 0)
+
+def sc_html(t):
+    """Small caps for text, leaving tags, <code> and premium emojis untouched."""
+    parts = _PE_SKIP.split(t or "")
+    for n in range(0, len(parts), 2): parts[n] = smallcaps(parts[n])
+    return "".join(parts)
 
 BACK = lambda: [[R(smallcaps("◀ back"), cb="sb:back", s=BTN_COLOR["back"])]]
 
@@ -358,8 +384,16 @@ TITLES = {}
 async def title(c, g):
     t = TITLES.get(g)
     if t and time.time() - t[1] < 600: return t[0]
-    try: v = (await asyncio.wait_for(c.get_chat(g), 5)).title or str(g)
-    except Exception: return t[0] if t else str(g)
+    v = None
+    try: v = (await asyncio.wait_for(c.get_chat(g), 5)).title
+    except Exception: pass
+    if not v:  # pyrogram may not know the peer yet - the Bot API always can by id
+        try: v = (await asyncio.wait_for(raw_post("getChat", {"chat_id": g}), 8)).get("title")
+        except Exception: pass
+    if not v:  # last saved name (stored when the group was connected / seen)
+        v = ((await ch.find_one({"_id": g}, {"title": 1})) or {}).get("title")
+        if not v: return t[0] if t else smallcaps("unknown group")
+    else: await ch.update_one({"_id": g}, {"$set": {"title": v}}, upsert=True)
     TITLES[g] = (v, time.time()); return v
 
 async def conn_set(u, g, add=True):
@@ -418,12 +452,13 @@ async def start(c, m):
         await clear_ld(c, m.chat.id, m.from_user.id)
         if START_IMGS:
             idx = random.randrange(len(START_IMGS))
-            await send_start(c, m.chat.id, START_IMGS[idx], start_txt(m.from_user), start_kb(idx, c.me.username), reply_id=m.id)
+            sm = await send_start(c, m.chat.id, START_IMGS[idx], start_txt(m.from_user), start_kb(idx, c.me.username, m.id), reply_id=m.id)
         else:
-            await ui_send(m.chat.id, start_txt(m.from_user), start_kb(0, c.me.username), reply_id=m.id)
+            sm = await ui_send(m.chat.id, start_txt(m.from_user), start_kb(0, c.me.username, m.id), reply_id=m.id)
+        if sm: SRC[(m.chat.id, sm)] = m.id
         return
     await think(c, m)
-    await ship(c, m, HELP_TEXT)
+    await ship(c, m, sc_html(HELP_TEXT))
 
 async def sb_show(c, q, txt, rows):
     """Edit the tapped message in place (text or photo caption) - never deletes it."""
@@ -435,28 +470,38 @@ async def sb_show(c, q, txt, rows):
 @cbq(r"^sb:")
 async def sb_cb(c, q):
     p = q.data.split(":"); a = p[1]; chat = q.message.chat.id
+    if a == "x":
+        await q.answer()
+        sid = sid_of(q, p[2] if len(p) > 2 else ""); SRC.pop((chat, q.message.id), None)
+        ids = [q.message.id] + ([sid] if sid else [])
+        try: await raw_post("deleteMessages", {"chat_id": chat, "message_ids": ids})
+        except Exception:
+            for i in ids:
+                try: await raw_post("deleteMessage", {"chat_id": chat, "message_id": i})
+                except Exception: pass
+        return
     if a == "img":
         if not START_IMGS: return await q.answer(smallcaps("no images added yet."), show_alert=True)
-        cur = int(p[2]) if len(p) > 2 and p[2].lstrip("-").isdigit() else -1
+        cur = int(p[2]) if len(p) > 3 and p[2].lstrip("-").isdigit() else -1
         idx = random.choice([i for i in range(len(START_IMGS)) if i != cur] or [0])
         await q.answer()
-        await update_start(c, q, START_IMGS[idx], start_txt(q.from_user), start_kb(idx, c.me.username))
+        await update_start(c, q, START_IMGS[idx], start_txt(q.from_user), start_kb(idx, c.me.username, sid_of(q, p[3] if len(p) > 3 else "")))
         return
     if a == "back":
         await q.answer(); await qanim(q)
         if START_IMGS:
             idx = random.randrange(len(START_IMGS))
-            await update_start(c, q, START_IMGS[idx], start_txt(q.from_user), start_kb(idx, c.me.username))
+            await update_start(c, q, START_IMGS[idx], start_txt(q.from_user), start_kb(idx, c.me.username, sid_of(q)))
         else:
-            await sb_show(c, q, start_txt(q.from_user), start_kb(0, c.me.username))
+            await sb_show(c, q, start_txt(q.from_user), start_kb(0, c.me.username, sid_of(q)))
         return
     if a == "help":
         await q.answer(); await qanim(q)
-        return await sb_show(c, q, HELP_TEXT, BACK())
+        return await sb_show(c, q, sc_html(HELP_TEXT), BACK())
     if a == "about":
         await q.answer(); await qanim(q)
-        txt = (f"<b>❓ {smallcaps('about')} {smallcaps(BOT_NAME)}</b>\n\n<blockquote>{smallcaps('i am an auto filter bot with premium features.')}\n"
-               f"{smallcaps('maintained by')} : <a href=\"{MAINTAINER_URL}\">{MAINTAINER}</a></blockquote>")
+        txt = (f"<b>❓ {smallcaps('about')} {smallcaps(BOT_NAME)}</b>\n\n<blockquote>{smallcaps('i am an auto filter bot with premium features.')}</blockquote>\n"
+               f"{maint_txt()}")
         return await sb_show(c, q, txt, BACK())
     if a == "set":
         g = (await cn.find_one({"_id": q.from_user.id}) or {}).get("active")
@@ -649,6 +694,7 @@ async def connect(c, m):
             return await reply(m, f"<b>❌ {smallcaps('unreachable')}</b>\n\n<blockquote>{m1} ({type(e).__name__}).\n{m2}</blockquote>")
     if not await is_adm(c, g, u): return await reply(m, f"<b>❌ {smallcaps('not admin')}</b>\n\n<blockquote>{smallcaps('you must be an admin of that group to connect it.')}</blockquote>")
     await think(c, m)
+    if m.chat.type in GRP and m.chat.title: TITLES[g] = (m.chat.title, time.time()); await ch.update_one({"_id": g}, {"$set": {"title": m.chat.title}}, upsert=True)
     await conn_set(u, g)
     await ship(c, m, f"<b>✅ {smallcaps('connected')}</b>\n\n<blockquote>{smallcaps('connected to')} <b>{html.escape(smallcaps(await title(c, g)))}</b>. {smallcaps('manage filters from my pm.')}</blockquote>")
 
@@ -664,11 +710,11 @@ async def conn_kb(c, u):
     d = await cn.find_one({"_id": u}) or {}
     gs = d.get("groups", [])
     ts = await asyncio.gather(*(title(c, g) for g in gs))
-    rows = [[R((("✅ " if g == d.get("active") else "") + smallcaps(t))[:64] or str(g), cb=f"cn:s:{g}"), R("🗑", cb=f"cn:d:{g}", s=BTN_COLOR["delete"])] for g, t in zip(gs, ts)]
+    rows = [[R((("✅ " if g == d.get("active") else "👥 ") + smallcaps(t))[:64], cb=f"cn:s:{g}"), R("🗑", cb=f"cn:d:{g}", s=BTN_COLOR["delete"])] for g, t in zip(gs, ts)]
     return rows or None
 
 def conn_txt(has):
-    if has: return f"<b>🔗 {smallcaps('your groups')}</b>\n\n<blockquote>{smallcaps('tap to select, 🗑 to remove.')}</blockquote>"
+    if has: return f"<b>🔗 {smallcaps('your groups')}</b>\n\n<blockquote>{smallcaps('tap a group to select it, 🗑 to remove. ✅ = active group.')}</blockquote>"
     return f"<b>📭 {smallcaps('no connections')}</b>\n\n<blockquote>{smallcaps('send /connect in your group first.')}</blockquote>"
 
 @app.on_message(filters.command("connections") & filters.private)
@@ -1183,6 +1229,58 @@ async def admins(c, m):
         admin_list = ", ".join(f"<code>{a}</code>" for a in ADMINS) or smallcaps("none")
         await ship(c, m, f"<b>👑 {smallcaps('admin list')}</b>\n\n<blockquote>{smallcaps('owner')}: <code>{OWNER}</code>\n{smallcaps('admins')}: {admin_list}</blockquote>")
 
+# ---------------------------------------------------- premium emojis
+def custom_emojis(msg):
+    """[(emoji, custom_emoji_id)] for every premium emoji in a message's text/caption."""
+    if not msg: return []
+    t, ents = msg.text or msg.caption or "", msg.entities or msg.caption_entities or []
+    u, out = t.encode("utf-16-le"), []
+    for e in ents:
+        if e.type == E.CUSTOM_EMOJI and getattr(e, "custom_emoji_id", None):
+            ch_ = u[e.offset * 2:(e.offset + e.length) * 2].decode("utf-16-le", "ignore")
+            if ch_ and (ch_, str(e.custom_emoji_id)) not in out: out.append((ch_, str(e.custom_emoji_id)))
+    return out
+
+async def pe_reload(): pe_load({d["_id"]: d["id"] async for d in em.find()})
+
+@app.on_message(filters.command("addemoji"))
+async def addemoji(c, m):
+    if not (m.from_user and sudo(m.from_user.id)): return
+    found = custom_emojis(m) + custom_emojis(m.reply_to_message)
+    if not found and len(m.command) > 2 and m.command[2].isdigit(): found = [(m.command[1], m.command[2])]
+    if not found:
+        return await reply(m, f"<b>❌ {smallcaps('no premium emojis found')}</b>\n\n<blockquote>{smallcaps('send /addemoji followed by premium emojis, or reply /addemoji to a message that has them.')}\n"
+                              f"{smallcaps('or')}: <code>/addemoji 🔥 5431449001695289639</code></blockquote>")
+    for e, i in found: await em.update_one({"_id": e}, {"$set": {"id": i}}, upsert=True)
+    await pe_reload()
+    ls = "\n".join(f'<tg-emoji emoji-id="{i}">{e}</tg-emoji> → <code>{i}</code>' for e, i in found)
+    txt = f"<b>✅ {smallcaps('premium emojis saved')}</b> ({len(found)})\n\n<blockquote>{ls}</blockquote>\n{smallcaps('they now replace the normal emojis in all bot menus.')}"
+    try: await raw_post("sendMessage", {"chat_id": m.chat.id, "text": txt, "parse_mode": "HTML",
+                                         "reply_parameters": {"message_id": m.id, "allow_sending_without_reply": True}})
+    except RuntimeError as e:
+        await reply(m, f"<b>⚠️ {smallcaps('saved, but telegram refused to show them')}</b>\n\n<blockquote><code>{html.escape(str(e))}</code>\n"
+                       f"{smallcaps('telegram only lets a bot send premium emojis if the bot has a username bought on fragment. until then the normal emojis are shown.')}</blockquote>")
+
+@app.on_message(filters.command("emojis"))
+async def emojis_cmd(c, m):
+    if not (m.from_user and sudo(m.from_user.id)): return
+    seen, ls = set(), []
+    for e, i in _PE_ID.items():
+        b = e.replace("\ufe0f", "")
+        if b in seen: continue
+        seen.add(b); ls.append(f"{e} <code>{i}</code>")
+    await reply(m, f"<b>✨ {smallcaps('premium emojis')}</b> ({len(ls)})\n\n<blockquote>{chr(10).join(ls) or smallcaps('none yet - use /addemoji')}</blockquote>")
+
+@app.on_message(filters.command("delemoji"))
+async def delemoji(c, m):
+    if not (m.from_user and sudo(m.from_user.id)): return
+    e = (m.command[1] if len(m.command) > 1 else "") or (custom_emojis(m.reply_to_message)[:1] or [("", "")])[0][0]
+    if not e: return await reply(m, f"<b>❌ {smallcaps('usage error')}</b>\n\n<blockquote>{smallcaps('usage: /delemoji emoji')}</blockquote>")
+    b = e.replace("\ufe0f", "")
+    n = (await em.delete_many({"_id": {"$in": [e, b, b + "\ufe0f"]}})).deleted_count
+    await pe_reload()
+    await reply(m, f"<b>✅ {smallcaps('removed')}</b>\n\n<blockquote>{html.escape(e)} ({n}) - {smallcaps('emojis set in config.py stay until removed there.')}</blockquote>")
+
 async def web_start():
     a = web.Application()
     for p in ("/", "/health"): a.router.add_get(p, lambda r: web.Response(text="ok"))
@@ -1206,6 +1304,7 @@ async def main():
     try:
         await fl.create_index([("g", 1), ("k", 1)], unique=True)
         ADMINS.update([d["_id"] async for d in ad.find()])
+        pe_load({d["_id"]: d["id"] async for d in em.find()})
         log.info("MongoDB OK")
     except Exception as e:
         log.error("MongoDB problem (filters will not work): %s", e)
