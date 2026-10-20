@@ -33,6 +33,10 @@ START_IMGS = [
 # Emojis that cycle during the /start animation
 LOAD_EMOJIS = ["⚙️", "🔄", "⏳", "✨"]
 
+# Live (animated) reaction put on a plain /start message - one is picked at random.
+# Must be emojis Telegram allows as reactions. Leave empty [] to turn off.
+START_REACTIONS = ["🔥", "❤", "⚡", "🎉", "🥰", "😍", "👍"]
+
 #  Button Colours: "red" | "green" | "blue" | "" (default/transparent)
 BTN_COLOR = {
     "letters": "",        # ᴀ ʟ ʏ ᴀ letter buttons

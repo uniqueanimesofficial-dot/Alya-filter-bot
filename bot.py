@@ -13,7 +13,7 @@ from pyrogram.types import ChatPermissions, InlineKeyboardButton as B, InlineKey
 # Import all settings from config.py
 from config import (
     API_ID, API_HASH, BOT_TOKEN, MONGO_URI, DB_NAME, OWNER_ID as OWNER,
-    BOT_NAME, MAINTAINER, MAINTAINER_URL, START_IMGS, LOAD_EMOJIS,
+    BOT_NAME, MAINTAINER, MAINTAINER_URL, START_IMGS, LOAD_EMOJIS, START_REACTIONS,
     BTN_COLOR, DEFAULT_BTN_COLOR, PREMIUM_EMOJIS, HELP_TEXT, SC
 )
 
@@ -83,6 +83,12 @@ async def raw_post(method, pl):
             j = await r.json()
     if not j.get("ok"): raise RuntimeError(j.get("description"))
     return j["result"]
+
+async def react(chat, mid, emoji=None):
+    try:
+        await raw_post("setMessageReaction", {"chat_id": chat, "message_id": mid, "is_big": True,
+                                              "reaction": [{"type": "emoji", "emoji": emoji or random.choice(START_REACTIONS)}]})
+    except Exception as e: log.warning("react failed (%s)", e)
 
 def _lpo(preview):
     o = {"is_disabled": not preview}
@@ -367,6 +373,7 @@ async def start(c, m):
     if m.chat.type == T.PRIVATE and m.command[1:2] == ["setwel"]: return await setwel(c, m)
     if m.chat.type == T.PRIVATE and m.command[0] == "start":
         only = len(m.command) == 1
+        if only and START_REACTIONS: asyncio.create_task(react(m.chat.id, m.id))
         await think(c, m, "starting", emojis=LOAD_EMOJIS if only else None, ttl=15)
         await clear_ld(c, m.chat.id, m.from_user.id)
         if START_IMGS:
