@@ -285,6 +285,8 @@ async def raw_cb(c, u, users, chats):
     q = CQ(c, u, users)
     try: await sc_ctx(q.message.chat.id, q.message.chat.type)
     except Exception: pass
+    if q.message.chat.type == T.PRIVATE and not q.data.startswith("fj:") and not await fs_ok(c, q.from_user.id):
+        return await q.answer(smallcaps("join the channel first, then send /start."), show_alert=True)
     for rx, f in CBQ:
         if rx.search(q.data):
             try: await f(c, q)
@@ -543,11 +545,6 @@ async def debug_log(c, m):
 
 @app.on_message(filters.command(["start", "help"]))
 async def start(c, m):
-    if m.chat.type == T.PRIVATE and m.from_user and m.command[0] == "start":
-        r = await us.update_one({"_id": m.from_user.id}, {"$set": {"n": m.from_user.first_name}, "$setOnInsert": {"t": time.time()}}, upsert=True)
-        if r.upserted_id is not None:
-            u = m.from_user
-            L("user", f"<b>👤 {smallcaps('new user')}</b>\n\n<blockquote>{smallcaps('name')}: {u.mention}\n{smallcaps('id')}: <code>{u.id}</code>\n{smallcaps('username')}: {'@' + u.username if u.username else smallcaps('none')}\n{smallcaps('total users')}: {await us.count_documents({})}</blockquote>")
     if m.chat.type == T.PRIVATE and m.command[1:2] == ["setwel"]: return await setwel(c, m)
     if m.chat.type == T.PRIVATE and m.command[0] == "start":
         only = len(m.command) == 1
@@ -1425,6 +1422,8 @@ async def suggest(c, m, g, n, ks):
 async def deliver(c, m, g, k, reply_id=None):
     d = await fl.find_one({"g": g, "k": k})
     if not d: return
+    if m.from_user and not await fs_ok(c, m.from_user.id):
+        return await fs_prompt(c, m, f"fj:{g}:{kh(k)}:{m.id}", 45)
     rid = reply_id or (m.reply_to_message.id if m.reply_to_message else m.id)
     try:
         await c.send_chat_action(m.chat.id, ChatAction.TYPING)
@@ -1464,6 +1463,7 @@ async def search_cmd(c, m):
 @cbq(r"^fm:")
 async def fm_cb(c, q):
     _, g, h, mid = q.data.split(":"); g = int(g)
+    if not await fs_ok(c, q.from_user.id): return await q.answer(smallcaps("join the channel first - use the filter again to get the join button."), show_alert=True)
     k = next((x for x in [d["k"] async for d in fl.find({"g": g}, {"k": 1})] if kh(x) == h), None)
     d = await fl.find_one({"g": g, "k": k}) if k else None
     if not d: return await q.answer(smallcaps("filter not found."), show_alert=True)
@@ -1510,29 +1510,135 @@ async def tracker(c, u):
         await ch.delete_one({"_id": u.chat.id}); SEEN.discard(u.chat.id)
         L("group", f"<b>➖ {smallcaps('removed from')} {kind}</b>\n\n<blockquote>{smallcaps('name')}: {html.escape(u.chat.title or '')}\n{smallcaps('id')}: <code>{u.chat.id}</code>\n{smallcaps('by')}: {who}</blockquote>")
 
-async def bsend(msg, cid):
-    for _ in range(2):
+async def bsend(msg, cid, user=False):
+    for _ in range(3):
         try: await msg.copy(cid); return True
         except Exception as e:
-            if type(e).__name__ == "FloodWait": await asyncio.sleep(e.value + 1); continue
-            if type(e).__name__ in ("ChannelPrivate", "ChatWriteForbidden", "UserNotParticipant"): await ch.delete_one({"_id": cid}); return False
+            n = type(e).__name__
+            if n == "FloodWait": await asyncio.sleep(e.value + 1); continue
+            if n in ("ChannelPrivate", "ChatWriteForbidden", "UserNotParticipant", "ChatAdminRequired"): await ch.delete_one({"_id": cid})
+            elif n in ("UserIsBlocked", "InputUserDeactivated", "PeerIdInvalid", "UserDeactivated"): await us.delete_one({"_id": cid})
             return False
     return False
 
+BCQ = {}
 @app.on_message(filters.command("broadcast"))
 async def broadcast(c, m):
-    if not (m.from_user and sudo(m.from_user.id)): return
-    if not m.reply_to_message: return await reply(m, f"<b>❌ {smallcaps('reply missing')}</b>\n\n<blockquote>{smallcaps('reply to the message you want to broadcast with /broadcast')}</blockquote>")
-    s = await think(c, m, "broadcasting", ttl=3600, force=True)
-    ids = [d["_id"] async for d in ch.find()]
-    ok = 0
-    for i in ids:
-        ok += await bsend(m.reply_to_message, i)
-        await asyncio.sleep(0.3)
-    LD.pop((m.chat.id, m.from_user.id), None)
-    if s:
-        try: await ui_edit(m.chat.id, s.id, f"<b>✅ {smallcaps('done')}</b>\n\n<blockquote>{smallcaps('broadcast done')}: ✅ {ok} {smallcaps('sent')}, ❌ {len(ids) - ok} {smallcaps('failed.')}</blockquote>")
-        except Exception: pass
+    if not (m.from_user and m.from_user.id == OWNER): return          # bot owner only
+    r = m.reply_to_message
+    if not r: return await reply(m, f"<b>❌ {smallcaps('reply missing')}</b>\n\n<blockquote>{smallcaps('reply to the message you want to broadcast with /broadcast')}</blockquote>")
+    ng, nu = await ch.count_documents({}), await us.count_documents({})
+    rows = [[R(f"👥 {smallcaps('groups & channels')} ({ng})", cb="bc:g", s="primary")],
+            [R(f"👤 {smallcaps('bot pms (users)')} ({nu})", cb="bc:u", s="primary")],
+            [R(f"📢 {smallcaps('both')} ({ng + nu})", cb="bc:b", s="success"), R(f"❌ {smallcaps('cancel')}", cb="bc:x", s="danger")]]
+    pid = await ui_send(m.chat.id, f"<b>📢 {smallcaps('broadcast')}</b>\n\n<blockquote>{smallcaps('where should i send this message?')}\n"
+                                   f"• {smallcaps('groups: groups/channels where i am added')}\n• {smallcaps('pms: users who started me')}</blockquote>", rows, reply_id=m.id)
+    BCQ[pid] = r
+    while len(BCQ) > 10: BCQ.pop(next(iter(BCQ)))
+
+@cbq(r"^bc:")
+async def bc_cb(c, q):
+    if q.from_user.id != OWNER: return await q.answer(smallcaps("bot owner only."), show_alert=True)
+    a, chat, mid = q.data.split(":")[1], q.message.chat.id, q.message.id
+    r = BCQ.pop(mid, None)
+    if a == "x":
+        await q.answer()
+        return await edit_any(chat, mid, f"<b>❌ {smallcaps('cancelled')}</b>")
+    if not r: return await q.answer(smallcaps("expired - send /broadcast again."), show_alert=True)
+    await q.answer()
+    gs = [d["_id"] async for d in ch.find()] if a in ("g", "b") else []
+    ps = [d["_id"] async for d in us.find()] if a in ("u", "b") else []
+    sg = set(gs)
+    todo = [(i, False) for i in gs] + [(i, True) for i in ps if i not in sg]
+    ok = {False: 0, True: 0}; bad = 0
+    for n, (i, isu) in enumerate(todo, 1):
+        if await bsend(r, i, isu): ok[isu] += 1
+        else: bad += 1
+        await asyncio.sleep(0.1 if isu else 0.3)
+        if n % 25 == 0:
+            try: await edit_any(chat, mid, f"<b>📢 {smallcaps('broadcasting')}</b>\n\n<blockquote>{n}/{len(todo)}</blockquote>")
+            except Exception: pass
+    await edit_any(chat, mid, f"<b>✅ {smallcaps('broadcast done')}</b>\n\n<blockquote>👥 {smallcaps('groups/channels')}: {ok[False]}\n👤 {smallcaps('users')}: {ok[True]}\n❌ {smallcaps('failed')}: {bad}</blockquote>")
+    L("start", f"<b>📢 {smallcaps('broadcast sent')}</b>\n\n<blockquote>{smallcaps('groups/channels')}: {ok[False]} | {smallcaps('users')}: {ok[True]} | {smallcaps('failed')}: {bad}</blockquote>")
+
+# ---------------------------------------------------- force subscribe
+FSUB, FSLINK, FSTITLE = 0, "", ""
+FSC, FSP = {}, {}
+
+async def fs_ok(c, uid, fresh=False):
+    if not FSUB or sudo(uid): return True
+    if not fresh and time.time() - FSC.get(uid, 0) < 300: return True
+    try: st_ = (await raw_post("getChatMember", {"chat_id": FSUB, "user_id": uid}))
+    except Exception as e:
+        if "not found" in str(e).lower() and "user" in str(e).lower(): return False
+        log.warning("force-sub check failed (%s) - add the bot as admin in the channel. letting the user in.", e); return True
+    ok = st_.get("status") in ("creator", "administrator", "member") or (st_.get("status") == "restricted" and st_.get("is_member"))
+    if ok: FSC[uid] = time.time()
+    return bool(ok)
+
+def fs_rows(cb):
+    return [[R(f"📢 {smallcaps('join channel')}", url=FSLINK, s="primary")], [R(f"✅ {smallcaps('i joined')}", cb=cb, s="success")]]
+
+async def fs_prompt(c, m, cb, ttl=None):
+    u = m.from_user
+    if time.time() - FSP.get((m.chat.id, u.id), 0) < 20: return
+    FSP[(m.chat.id, u.id)] = time.time()
+    if len(FSP) > 2000: FSP.clear()
+    try:
+        mid = await ui_send(m.chat.id, f"<b>🔒 {smallcaps('join required')}</b>\n\n<blockquote>{smallcaps('please join')} <b>{html.escape(FSTITLE or smallcaps('our channel'))}</b> {smallcaps('to use this bot, then tap')} <b>✅ {smallcaps('i joined')}</b>.</blockquote>", fs_rows(cb), reply_id=m.id)
+        if ttl: bg(_ttl(CQMsg(m.chat.id, m.chat.type, mid), ttl))
+    except Exception as e: log.warning("fsub prompt failed: %s", e)
+
+@app.on_message(group=-8)
+async def pm_gate(c, m):
+    if m.chat.type != T.PRIVATE or not m.from_user: return
+    uid = m.from_user.id
+    r = await us.update_one({"_id": uid}, {"$set": {"n": m.from_user.first_name}, "$setOnInsert": {"t": time.time()}}, upsert=True)
+    if r.upserted_id is not None:
+        u = m.from_user
+        L("user", f"<b>👤 {smallcaps('new user')}</b>\n\n<blockquote>{smallcaps('name')}: {u.mention}\n{smallcaps('id')}: <code>{u.id}</code>\n{smallcaps('username')}: {'@' + u.username if u.username else smallcaps('none')}\n{smallcaps('total users')}: {await us.count_documents({})}</blockquote>")
+    if not await fs_ok(c, uid):
+        await fs_prompt(c, m, "fj:0:0:0")
+        m.stop_propagation()
+
+@cbq(r"^fj:")
+async def fj_cb(c, q):
+    _, g, h, mid = q.data.split(":"); g = int(g)
+    if not await fs_ok(c, q.from_user.id, fresh=True): return await q.answer(smallcaps("you have not joined yet."), show_alert=True)
+    await q.answer(smallcaps("verified ✅"))
+    if not g:
+        return await edit_any(q.message.chat.id, q.message.id, f"<b>✅ {smallcaps('verified')}</b>\n\n<blockquote>{smallcaps('thanks! send /start now.')}</blockquote>")
+    k = next((x for x in [d["k"] async for d in fl.find({"g": g}, {"k": 1})] if kh(x) == h), None)
+    d = await fl.find_one({"g": g, "k": k}) if k else None
+    if d:
+        d = dict(d)
+        if d.get("b"): d["b"] = apply_default(d["b"])
+        try: await api_send(q.message.chat.id, int(mid), d)
+        except Exception as e: log.warning("fj send failed: %s", e)
+    await q.message.delete()
+
+@app.on_message(filters.command("fsub"))
+async def fsub_cmd(c, m):
+    global FSUB, FSLINK, FSTITLE
+    if not (m.from_user and m.from_user.id == OWNER): return
+    a = m.command[1:]
+    if not a:
+        cur = f"<code>{FSUB}</code> - {html.escape(FSTITLE)}" if FSUB else smallcaps("off")
+        return await reply(m, f"<b>🔒 {smallcaps('force subscribe')}</b>\n\n<blockquote>{smallcaps('now')}: {cur}\n{smallcaps('set')}: <code>/fsub -100xxxxxxxxxx</code> {smallcaps('or')} <code>/fsub @channel</code>\n{smallcaps('private channel: add an invite link after the id.')}\n{smallcaps('turn off')}: <code>/fsub off</code>\n{smallcaps('the bot must be admin in the channel.')}</blockquote>")
+    if a[0].lower() in ("off", "none", "0"): FSUB, FSLINK, FSTITLE = 0, "", ""
+    else:
+        try: ch_ = await raw_post("getChat", {"chat_id": int(a[0]) if a[0].lstrip("-").isdigit() else a[0]})
+        except Exception as e: return await reply(m, f"<b>❌ {smallcaps('cannot find that channel')}</b>\n\n<blockquote><code>{html.escape(str(e))}</code>\n{smallcaps('add me as admin there first.')}</blockquote>")
+        try: await raw_post("getChatMember", {"chat_id": ch_["id"], "user_id": m.from_user.id})
+        except Exception as e: return await reply(m, f"<b>❌ {smallcaps('i need admin rights there')}</b>\n\n<blockquote><code>{html.escape(str(e))}</code></blockquote>")
+        link = a[1] if len(a) > 1 and a[1].startswith("http") else (f"https://t.me/{ch_['username']}" if ch_.get("username") else ch_.get("invite_link") or "")
+        if not link:
+            try: link = await raw_post("exportChatInviteLink", {"chat_id": ch_["id"]})
+            except Exception: return await reply(m, f"<b>❌ {smallcaps('no invite link')}</b>\n\n<blockquote>{smallcaps('send it too:')} <code>/fsub {ch_['id']} https://t.me/+xxxx</code></blockquote>")
+        FSUB, FSLINK, FSTITLE = ch_["id"], link, ch_.get("title") or ""
+        FSC.clear()
+    await st.update_one({"_id": "bot"}, {"$set": {"fsub": FSUB, "fsub_link": FSLINK, "fsub_title": FSTITLE}}, upsert=True)
+    await reply(m, f"<b>✅ {smallcaps('updated')}</b>\n\n<blockquote>{smallcaps('force subscribe')}: " + (f"<b>{html.escape(FSTITLE)}</b> (<code>{FSUB}</code>)" if FSUB else smallcaps("off")) + "</blockquote>")
 
 @app.on_message(filters.command("stats"))
 async def stats(c, m):
@@ -1766,7 +1872,7 @@ async def ping():
             except Exception: pass
 
 async def main():
-    global LOGC
+    global LOGC, FSUB, FSLINK, FSTITLE
     await web_start(); asyncio.create_task(ping()); asyncio.create_task(style_poll())
     log.info("connecting to Telegram...")
     await app.start(); log.info("STARTED as @%s - send /start to it", (await app.get_me()).username)
@@ -1777,6 +1883,8 @@ async def main():
         bs = await st.find_one({"_id": "bot"}) or {}
         if "log" in bs: LOGC = int(bs["log"] or 0)
         LOGOFF.update(bs.get("off", []))
+        FSUB, FSLINK, FSTITLE = int(bs.get("fsub") or 0), bs.get("fsub_link", ""), bs.get("fsub_title", "")
+        async for d in cn.find({}, {"_id": 1}): await us.update_one({"_id": d["_id"]}, {"$setOnInsert": {"t": 0}}, upsert=True)
         log.info("MongoDB OK")
     except Exception as e:
         log.error("MongoDB problem (filters will not work): %s", e)
