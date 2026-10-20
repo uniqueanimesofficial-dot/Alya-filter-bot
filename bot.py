@@ -697,7 +697,7 @@ async def tgt_user(c, m):
 async def warn_cmd(c, m):
     g, u = await tgt_user(c, m)
     if not g: return
-    if await is_adm(c, g, u.id): return await ship(c, m, f"<b>❌ {smallcaps('cannot warn')}</b>\n\n<blockquote>{smallcaps('i can\\'t warn admins.')}</blockquote>")
+    if await is_adm(c, g, u.id): return await ship(c, m, f"<b>❌ {smallcaps('cannot warn')}</b>\n\n<blockquote>{smallcaps('i can’t warn admins.')}</blockquote>")
     await think(c, m)
     txt, kb = await add_warn(c, g, u, " ".join(m.command[1:]) or smallcaps("no reason given"))
     await ship(c, m, txt, kb)
