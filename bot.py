@@ -5,10 +5,10 @@ from types import SimpleNamespace
 asyncio.set_event_loop(asyncio.new_event_loop())
 from aiohttp import ClientSession, ClientTimeout, web
 from motor.motor_asyncio import AsyncIOMotorClient
-from pyrogram import Client, filters, idle
+from pyrogram import Client, filters, idle, raw, utils
 from pyrogram.enums import ChatAction, ChatMembersFilter, ChatMemberStatus as S, ChatType as T, MessageEntityType as E, ParseMode
 from pymongo import ReturnDocument
-from pyrogram.types import ChatPermissions, InlineKeyboardButton as B, InlineKeyboardMarkup as M
+from pyrogram.types import ChatPermissions, InlineKeyboardButton as B, InlineKeyboardMarkup as M, User
 
 # Import all settings from config.py
 from config import (
@@ -103,8 +103,9 @@ async def ui_edit(chat, mid, text, rows=None, preview=False):
     if rows: pl["reply_markup"] = raw_kb(rows)
     return await raw_post("editMessageText", pl)
 
-async def raw_send_photo(chat, photo, caption, rows):
+async def raw_send_photo(chat, photo, caption, rows, reply_id=None):
     pl = {"chat_id": chat, "photo": photo, "caption": caption, "parse_mode": "HTML"}
+    if reply_id: pl["reply_parameters"] = {"message_id": reply_id, "allow_sending_without_reply": True}
     if rows: pl["reply_markup"] = raw_kb(rows)
     return (await raw_post("sendPhoto", pl))["message_id"]
 
@@ -112,6 +113,63 @@ async def raw_edit_media(chat, mid, photo, caption, rows):
     return await raw_post("editMessageMedia", {"chat_id": chat, "message_id": mid,
                           "media": {"type": "photo", "media": photo, "caption": caption, "parse_mode": "HTML"},
                           "reply_markup": raw_kb(rows)})
+
+# --------------------------------------- callback queries via Bot API
+# Pyrogram 2.0.106 (layer 158) can't decode coloured buttons, so its CallbackQuery
+# parser hangs re-fetching the message. Handle raw updates and reply over the Bot API.
+app.dispatcher.update_parsers.pop(raw.types.UpdateBotCallbackQuery, None)
+CBQ = []
+def cbq(pattern):
+    rx = re.compile(pattern)
+    def deco(f): CBQ.append((rx, f)); return f
+    return deco
+
+class CQMsg:
+    def __init__(self, chat_id, ctype, mid):
+        self.chat, self.id = SimpleNamespace(id=chat_id, type=ctype), mid
+    async def delete(self):
+        try: await raw_post("deleteMessage", {"chat_id": self.chat.id, "message_id": self.id})
+        except Exception: pass
+    async def reply_text(self, text, rows=None): return await ui_send(self.chat.id, text, rows, reply_id=self.id)
+
+class CQ:
+    def __init__(self, c, u, users):
+        self.id, self.data, self.answered = str(u.query_id), (u.data or b"").decode("utf-8", "ignore"), False
+        ru = users.get(u.user_id)
+        try: self.from_user = User._parse(c, ru) if ru else None
+        except Exception: self.from_user = None
+        if not self.from_user:
+            self.from_user = SimpleNamespace(id=u.user_id, first_name="friend", last_name=None, username=None, is_premium=False,
+                                             is_bot=False, mention=f'<a href="tg://user?id={u.user_id}">friend</a>')
+        pt = {raw.types.PeerUser: T.PRIVATE, raw.types.PeerChat: T.GROUP}.get(type(u.peer), T.SUPERGROUP)
+        self.message = CQMsg(utils.get_peer_id(u.peer), pt, u.msg_id)
+    async def answer(self, text=None, show_alert=False):
+        if self.answered: return
+        self.answered = True
+        pl = {"callback_query_id": self.id, "show_alert": show_alert}
+        if text: pl["text"] = text
+        try: await raw_post("answerCallbackQuery", pl)
+        except Exception as e: log.warning("answer failed: %s", e)
+
+@app.on_raw_update(group=-5)
+async def raw_cb(c, u, users, chats):
+    if not isinstance(u, raw.types.UpdateBotCallbackQuery): return
+    q = CQ(c, u, users)
+    for rx, f in CBQ:
+        if rx.search(q.data):
+            try: await f(c, q)
+            except Exception as e: log.exception("callback %r failed: %s", q.data, e)
+            break
+    await q.answer()
+
+async def edit_any(chat, mid, text, rows=None):
+    try: return await ui_edit(chat, mid, text, rows)
+    except RuntimeError as e:
+        if "not modified" in str(e).lower(): return
+        if "no text" not in str(e).lower(): raise
+    pl = {"chat_id": chat, "message_id": mid, "caption": text, "parse_mode": "HTML"}
+    if rows: pl["reply_markup"] = raw_kb(rows)
+    return await raw_post("editMessageCaption", pl)
 
 def start_kb(idx, uname):
     c = BTN_COLOR
@@ -122,23 +180,23 @@ def start_kb(idx, uname):
         [R(smallcaps("connections"), cb="sb:conn", s=c["connections"]), R(smallcaps("about"), cb="sb:about", s=c["about"])],
     ]
 
-BACK = lambda: [R(smallcaps("◀ back"), cb="sb:back", s=BTN_COLOR["back"])]
+BACK = lambda: [[R(smallcaps("◀ back"), cb="sb:back", s=BTN_COLOR["back"])]]
 
 # ------------------------- bulletproof start-screen sender
-async def send_start(c, chat, img, caption, kb):
+async def send_start(c, chat, img, caption, kb, reply_id=None):
     if is_url(img):
-        try: return await ui_send(chat, f'<a href="{img}">\u200b</a>\n{caption}', kb, preview=True)
+        try: return await ui_send(chat, f'<a href="{img}">\u200b</a>\n{caption}', kb, reply_id=reply_id, preview=True)
         except Exception as e: log.warning("start: preview failed (%s)", e)
-    try: return await raw_send_photo(chat, img, caption, kb)
+    try: return await raw_send_photo(chat, img, caption, kb, reply_id)
     except Exception as e: log.warning("start: photo failed (%s)", e)
-    try: return await ui_send(chat, caption, kb)
+    try: return await ui_send(chat, caption, kb, reply_id=reply_id)
     except Exception as e: log.warning("start: text failed (%s)", e)
-    return await ui_send(chat, _strip_pe(caption), kb)
+    return await ui_send(chat, _strip_pe(caption), kb, reply_id=reply_id)
 
 async def update_start(c, q, img, caption, kb):
     chat, mid = q.message.chat.id, q.message.id
     try:
-        if q.message.photo or not is_url(img): raise ValueError("switch mode")
+        if not is_url(img): raise ValueError("switch mode")
         await ui_edit(chat, mid, f'<a href="{img}">\u200b</a>\n{caption}', kb, preview=True)
     except Exception as e:
         log.warning("update_start: %s -> resend", e)
@@ -181,9 +239,7 @@ async def ship(c, m, text=None, rows=None):
 async def qanim(q, base="wait a sec", ticks=3, delay=0.3):
     for i in range(1, ticks + 1):
         body = f"<b><i>{smallcaps(base)}{'.' * i}</i></b>"
-        try:
-            if q.message.media: await q.message.edit_caption(body)
-            else: await q.message.edit_text(body)
+        try: await edit_any(q.message.chat.id, q.message.id, body)
         except Exception: pass
         await asyncio.sleep(delay)
 
@@ -252,9 +308,13 @@ async def target(c, m, owner=False):
     await m.reply_text(f"<b>❌ {smallcaps('permission denied')}</b>\n\n<blockquote>{perm_msg}</blockquote>")
     return None
 
+TITLES = {}
 async def title(c, g):
-    try: return (await c.get_chat(g)).title or str(g)
-    except Exception: return str(g)
+    t = TITLES.get(g)
+    if t and time.time() - t[1] < 600: return t[0]
+    try: v = (await asyncio.wait_for(c.get_chat(g), 5)).title or str(g)
+    except Exception: return t[0] if t else str(g)
+    TITLES[g] = (v, time.time()); return v
 
 async def conn_set(u, g, add=True):
     d = await cn.find_one({"_id": u}) or {}
@@ -277,16 +337,17 @@ async def api_send(chat, reply_id, d):
         method = "sendMessage"
     return await raw_post(method, pl)
 
-async def send(c, m, d):
+async def send(c, m, d, reply_id=None):
     d = dict(d)
     if d.get("b"): d["b"] = apply_default(d["b"])
+    reply_id = reply_id or m.id
     try:
-        r = await api_send(m.chat.id, m.id, d)
+        r = await api_send(m.chat.id, reply_id, d)
         return r.get("message_id") if isinstance(r, dict) else r
     except Exception as e:
         log.warning("raw send failed (%s) - falling back to pyrogram", e)
     mk = M([[B(b["text"], url=b.get("url")) for b in r] for r in d.get("b") or []]) if d.get("b") else None
-    ft, kw = d.get("ft"), dict(chat_id=m.chat.id, reply_to_message_id=m.id, reply_markup=mk)
+    ft, kw = d.get("ft"), dict(chat_id=m.chat.id, reply_to_message_id=reply_id, reply_markup=mk)
     for _ in range(2):
         try:
             if ft:
@@ -310,7 +371,7 @@ async def start(c, m):
         await clear_ld(c, m.chat.id, m.from_user.id)
         if START_IMGS:
             idx = random.randrange(len(START_IMGS))
-            await send_start(c, m.chat.id, START_IMGS[idx], start_txt(m.from_user), start_kb(idx, c.me.username))
+            await send_start(c, m.chat.id, START_IMGS[idx], start_txt(m.from_user), start_kb(idx, c.me.username), reply_id=m.id)
         else:
             await ui_send(m.chat.id, start_txt(m.from_user), start_kb(0, c.me.username), reply_id=m.id)
         return
@@ -319,15 +380,14 @@ async def start(c, m):
 
 async def sb_show(c, q, txt, rows):
     chat = q.message.chat.id
-    if q.message.photo or q.message.media:
-        try: await q.message.delete()
-        except Exception: pass
-        await ui_send(chat, txt, rows)
-    else:
-        try: await ui_edit(chat, q.message.id, txt, rows)
-        except Exception: await ui_send(chat, txt, rows)
+    try: await ui_edit(chat, q.message.id, txt, rows)
+    except Exception as e:
+        if "not modified" in str(e).lower(): return
+        await q.message.delete()
+        try: await ui_send(chat, txt, rows)
+        except Exception: await ui_send(chat, _strip_pe(txt), rows)
 
-@app.on_callback_query(filters.regex(r"^sb:"))
+@cbq(r"^sb:")
 async def sb_cb(c, q):
     p = q.data.split(":"); a = p[1]; chat = q.message.chat.id
     if a == "img":
@@ -338,7 +398,7 @@ async def sb_cb(c, q):
         await update_start(c, q, START_IMGS[idx], start_txt(q.from_user), start_kb(idx, c.me.username))
         return
     if a == "back":
-        await qanim(q); await q.answer()
+        await q.answer(); await qanim(q)
         if START_IMGS:
             idx = random.randrange(len(START_IMGS))
             try: await q.message.delete()
@@ -348,10 +408,10 @@ async def sb_cb(c, q):
             await sb_show(c, q, start_txt(q.from_user), start_kb(0, c.me.username))
         return
     if a == "help":
-        await qanim(q); await q.answer()
+        await q.answer(); await qanim(q)
         return await sb_show(c, q, HELP_TEXT, BACK())
     if a == "about":
-        await qanim(q); await q.answer()
+        await q.answer(); await qanim(q)
         txt = (f"<b>❓ {smallcaps('about')} {smallcaps(BOT_NAME)}</b>\n\n<blockquote>{smallcaps('i am an auto filter bot with premium features.')}\n"
                f"{smallcaps('maintained by')} : <a href=\"{MAINTAINER_URL}\">{MAINTAINER}</a></blockquote>")
         return await sb_show(c, q, txt, BACK())
@@ -359,11 +419,11 @@ async def sb_cb(c, q):
         g = (await cn.find_one({"_id": q.from_user.id}) or {}).get("active")
         if not g: return await q.answer(smallcaps("connect a group first: send /connect in your group."), show_alert=True)
         if not await is_adm(c, g, q.from_user.id, trust=True): return await q.answer(smallcaps("admins only."), show_alert=True)
-        await qanim(q); await q.answer()
+        await q.answer(); await qanim(q)
         cf = await cfg(g)
         return await sb_show(c, q, st_txt(cf), st_kb(g, cf) + BACK())
     if a == "conn":
-        await qanim(q); await q.answer()
+        await q.answer()
         rows = await conn_kb(c, q.from_user.id)
         return await sb_show(c, q, conn_txt(bool(rows)), (rows or []) + BACK())
 
@@ -452,7 +512,7 @@ async def lst(c, m):
     await think(c, m)
     await panel(c, m, g)
 
-@app.on_callback_query(filters.regex(r"^f[dpv]:"))
+@cbq(r"^f[dpv]:")
 async def fl_cb(c, q):
     p = q.data.split(":"); a, g = p[0], int(p[1])
     cd = await cn.find_one({"_id": q.from_user.id}) or {}
@@ -497,7 +557,7 @@ async def delall(c, m):
     await ship(c, m, f"<b>⚠️ {smallcaps('warning')}</b>\n\n<blockquote>{smallcaps('delete all filters?')}</blockquote>",
                [[R(smallcaps("yes"), cb=f"da:y:{g}", s="danger"), R(smallcaps("cancel"), cb="da:n:0")]])
 
-@app.on_callback_query(filters.regex(r"^da:"))
+@cbq(r"^da:")
 async def delall_cb(c, q):
     _, a, g = q.data.split(":"); g = int(g)
     if a != "y":
@@ -559,7 +619,9 @@ async def disconnect(c, m):
 
 async def conn_kb(c, u):
     d = await cn.find_one({"_id": u}) or {}
-    rows = [[R(("✅ " if g == d.get("active") else "") + smallcaps(await title(c, g)), cb=f"cn:s:{g}"), R("🗑", cb=f"cn:d:{g}", s=BTN_COLOR["delete"])] for g in d.get("groups", [])]
+    gs = d.get("groups", [])
+    ts = await asyncio.gather(*(title(c, g) for g in gs))
+    rows = [[R((("✅ " if g == d.get("active") else "") + smallcaps(t))[:64] or str(g), cb=f"cn:s:{g}"), R("🗑", cb=f"cn:d:{g}", s=BTN_COLOR["delete"])] for g, t in zip(gs, ts)]
     return rows or None
 
 def conn_txt(has):
@@ -572,16 +634,21 @@ async def conns(c, m):
     kb = await conn_kb(c, m.from_user.id)
     await ship(c, m, conn_txt(bool(kb)), kb)
 
-@app.on_callback_query(filters.regex(r"^cn:"))
+@cbq(r"^cn:")
 async def conn_cb(c, q):
     _, a, g = q.data.split(":"); g, u = int(g), q.from_user.id
-    await qanim(q)
     if a == "s": await cn.update_one({"_id": u}, {"$set": {"active": g}})
     else: await conn_set(u, g, False)
-    await q.answer(smallcaps("done"))
+    await q.answer(smallcaps("connected ✅") if a == "s" else smallcaps("removed 🗑"))
     kb = await conn_kb(c, u)
-    try: await ui_edit(q.message.chat.id, q.message.id, conn_txt(bool(kb)), kb)
-    except Exception: pass
+    rows = (kb or []) + BACK()
+    try: await ui_edit(q.message.chat.id, q.message.id, conn_txt(bool(kb)), rows)
+    except Exception as e:
+        if "not modified" in str(e).lower(): return
+        log.warning("conn_cb: edit failed (%s) -> resend", e)
+        try: await q.message.delete()
+        except Exception: pass
+        await ui_send(q.message.chat.id, conn_txt(bool(kb)), rows)
 
 CFG, PEND, FLOOD, ADC, OWN = {}, {}, {}, {}, {}
 
@@ -628,7 +695,7 @@ async def settings_cmd(c, m):
     cf = await cfg(g)
     await ship(c, m, st_txt(cf), st_kb(g, cf))
 
-@app.on_callback_query(filters.regex(r"^st:"))
+@cbq(r"^st:")
 async def st_cb(c, q):
     _, g, k = q.data.split(":"); g = int(g)
     if not await can(c, q, g): return await q.answer(smallcaps("admins only."), show_alert=True)
@@ -734,7 +801,7 @@ async def unrestrict(c, m):
         m1 = smallcaps("i need the 'restrict members' right")
         await ship(c, m, f"<b>❌ {smallcaps('failed')}</b>\n\n<blockquote>{type(e).__name__} ({m1})</blockquote>")
 
-@app.on_callback_query(filters.regex(r"^u[wb]:"))
+@cbq(r"^u[wb]:")
 async def undo_cb(c, q):
     a, g, u = q.data.split(":"); g, u = int(g), int(u)
     if not await is_adm(c, g, q.from_user.id): return await q.answer(smallcaps("admins only."), show_alert=True)
@@ -774,7 +841,7 @@ async def allowlink(c, m):
     txt, kb = dom_view(g, cf)
     await ship(c, m, txt, kb)
 
-@app.on_callback_query(filters.regex(r"^d[dn]:"))
+@cbq(r"^d[dn]:")
 async def dom_cb(c, q):
     a, g, h = q.data.split(":"); g = int(g)
     if not await can(c, q, g): return await q.answer(smallcaps("admins only."), show_alert=True)
@@ -907,7 +974,7 @@ async def setwel(c, m):
     txt, rows = await wel_view(c, g)
     await ship(c, m, txt, rows)
 
-@app.on_callback_query(filters.regex(r"^wl:"))
+@cbq(r"^wl:")
 async def wel_cb(c, q):
     _, g, a = q.data.split(":"); g = int(g)
     if not await can(c, q, g): return await q.answer(smallcaps("admins only."), show_alert=True)
@@ -1007,12 +1074,14 @@ async def listen(c, m):
         if hit(k, mt, m.text):
             d = await fl.find_one({"g": g, "k": k})
             if d:
-                await c.send_chat_action(g, ChatAction.TYPING)
-                loader = await c.send_message(g, f"<b><i>{smallcaps('finding...')}</i></b>", reply_to_message_id=m.id)
-                await asyncio.sleep(0.8)
-                try: await loader.delete()
+                rid = m.reply_to_message.id if m.reply_to_message else m.id
+                try:
+                    await c.send_chat_action(g, ChatAction.TYPING)
+                    loader = await c.send_message(g, f"<b><i>{smallcaps('finding...')}</i></b>", reply_to_message_id=m.id)
+                    await asyncio.sleep(0.8)
+                    await loader.delete()
                 except Exception: pass
-                await send(c, m, d)
+                await send(c, m, d, reply_id=rid)
             return
 
 @app.on_chat_member_updated()

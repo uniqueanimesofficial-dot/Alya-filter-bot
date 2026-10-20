@@ -36,12 +36,12 @@ LOAD_EMOJIS = ["⚙️", "🔄", "⏳", "✨"]
 #  Button Colours: "red" | "green" | "blue" | "" (default/transparent)
 BTN_COLOR = {
     "letters": "",        # ᴀ ʟ ʏ ᴀ letter buttons
-    "add_group": "green", # ᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ɢʀᴏᴜᴘ
+    "add_group": "green", # ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ɢʀᴏᴜᴘ
     "commands": "blue",   # ᴄᴏᴍᴍᴀɴᴅs
     "settings": "blue",   # sᴇᴛᴛɪɴɢs
     "connections": "blue",# ᴄᴏɴɴᴇᴄᴛɪᴏɴs
-    "about": "blue",      # ʙᴏᴜᴛ
-    "back": "red",        # ◀ ʙᴄᴋ buttons
+    "about": "blue",      # ᴀʙᴏᴜᴛ
+    "back": "red",        # ◀ ʙᴀᴄᴋ buttons
     "delete": "red",      # 🗑 delete buttons
     "set": "blue",        # ✏️ Set / change buttons
 }
@@ -55,10 +55,10 @@ DEFAULT_BTN_COLOR = ""
 # Get IDs from @RawDataBot. The second item is the fallback emoji for non-premium users.
 PREMIUM_EMOJIS = {
     "wave": ("5368324170671202286", "👋"),
-    "fire": ("5431449001695289639", ""),
+    "fire": ("5431449001695289639", "🔥"),
     "settings": ("5318940267334622539", "⚙️"),
     "heart": ("5368324170671202286", "❤️"), 
-    "crown": ("5465421548791234567", ""), # Replace ID with yours!
+    "crown": ("5465421548791234567", "👑"), # Replace ID with yours!
     "check": ("5465421548791234568", "✅"), # Replace ID with yours!
 }
 
@@ -97,5 +97,5 @@ HELP_TEXT = """<b><tg-emoji emoji-id="5465421548791234567">🤖</tg-emoji> FILTE
 # ==========================================
 #  🔤 SMALL CAPS DICTIONARY
 # ==========================================
-SC = {"a":"ᴀ","b":"ʙ","c":"ᴄ","d":"ᴅ","e":"ᴇ","f":"","g":"ɢ","h":"ʜ","i":"ɪ","j":"ᴊ","k":"ᴋ","l":"ʟ",
-      "m":"ᴍ","n":"ɴ","o":"","p":"ᴘ","q":"ǫ","r":"ʀ","s":"ꜱ","t":"ᴛ","u":"ᴜ","v":"ᴠ","w":"ᴡ","x":"x","y":"ʏ","z":"ᴢ"}
+SC = {"a":"ᴀ","b":"ʙ","c":"ᴄ","d":"ᴅ","e":"ᴇ","f":"ꜰ","g":"ɢ","h":"ʜ","i":"ɪ","j":"ᴊ","k":"ᴋ","l":"ʟ",
+      "m":"ᴍ","n":"ɴ","o":"ᴏ","p":"ᴘ","q":"ǫ","r":"ʀ","s":"ꜱ","t":"ᴛ","u":"ᴜ","v":"ᴠ","w":"ᴡ","x":"x","y":"ʏ","z":"ᴢ"}
