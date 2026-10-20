@@ -39,7 +39,6 @@ def pe(name):
     """Helper to easily use Premium Emojis defined in config.py"""
     data = PREMIUM_EMOJIS.get(name)
     if not data: return "✨"
-    # pz() swaps it for the premium version (config IDs + ones saved with /addemoji)
     return data[1]
 
 def greet():
@@ -56,7 +55,8 @@ def start_txt(u):
             f"{maint_txt()}")
 
 def maint_txt():
-    return f'<blockquote>▶ <b>{smallcaps("maintained by")} :</b> <a href="{MAINTAINER_URL}"><b>{MAINTAINER}</a></blockquote></b>'
+    # Fixed mismatched HTML tags
+    return f'<blockquote>▶ <b>{smallcaps("maintained by")} :</b> <a href="{MAINTAINER_URL}"><b>{MAINTAINER}</b></a></blockquote>'
 
 # ------------------------------------------- raw Bot API layer
 def R(text, cb=None, url=None, s=None):
@@ -94,7 +94,6 @@ async def react(chat, mid, emoji=None):
     except Exception as e: log.warning("react failed (%s)", e)
 
 def _lpo(url=None):
-    # Pin the preview to the image URL so Telegram never picks another link (or none).
     if not url: return {"is_disabled": True}
     return {"url": url, "show_above_text": True, "prefer_large_media": True}
 
@@ -105,7 +104,6 @@ _PE_SKIP = re.compile(r'(<tg-emoji[^>]*>.*?</tg-emoji>|<code>.*?</code>|<pre>.*?
 _PE_ID, _PE_RX = {}, re.compile(r"(?!x)x")
 
 def pe_load(extra=None):
-    """(Re)build the emoji -> premium ID map from config + emojis saved with /addemoji."""
     global _PE_RX
     _PE_ID.clear()
     for d in (EMOJI_IDS, {f: i for i, f in PREMIUM_EMOJIS.values()}, extra or {}):
@@ -117,7 +115,6 @@ def pe_load(extra=None):
 pe_load()
 
 def pz(t):
-    """Swap normal emojis for premium ones (EMOJI_IDS in config), skipping tags/code."""
     if not t or not _PE_ID: return t
     parts, rx, ids = _PE_SKIP.split(t), _PE_RX, _PE_ID
     for n in range(0, len(parts), 2):
@@ -125,7 +122,6 @@ def pz(t):
     return "".join(parts)
 
 async def pe_post(method, pl, key):
-    """Send with premium emojis; if Telegram rejects them, retry with normal emojis."""
     pl[key] = pz(pl[key])
     try: return await raw_post(method, pl)
     except RuntimeError as e:
@@ -165,8 +161,6 @@ async def raw_edit_media(chat, mid, photo, caption, rows):
                               "reply_markup": raw_kb(rows)})
 
 # --------------------------------------- callback queries via Bot API
-# Pyrogram 2.0.106 (layer 158) can't decode coloured buttons, so its CallbackQuery
-# parser hangs re-fetching the message. Handle raw updates and reply over the Bot API.
 app.dispatcher.update_parsers.pop(raw.types.UpdateBotCallbackQuery, None)
 CBQ = []
 def cbq(pattern):
@@ -233,20 +227,17 @@ def start_kb(idx, uname, sid=0):
         [R(ch, cb=f"sb:x:{sid}", s=c.get("close", "red")) for ch in smallcaps("close")],
     ]
 
-# start-screen message id -> the user's /start message id (so ✕ close can delete both)
 SRC = {}
 def sid_of(q, v=""):
     return int(v) if v.isdigit() and int(v) else SRC.get((q.message.chat.id, q.message.id), 0)
 
 def sc_html(t):
-    """Small caps for text, leaving tags, <code> and premium emojis untouched."""
     parts = _PE_SKIP.split(t or "")
     for n in range(0, len(parts), 2): parts[n] = smallcaps(parts[n])
     return "".join(parts)
 
 BACK = lambda: [[R(smallcaps("◀️ back"), cb="sb:back", s=BTN_COLOR["back"])]]
 
-# ------------------------- bulletproof start-screen sender
 async def send_start(c, chat, img, caption, kb, reply_id=None):
     if is_url(img):
         try: return await ui_send(chat, f'<a href="{img}">\u200b</a>\n{caption}', kb, reply_id=reply_id, preview=img)
@@ -258,7 +249,6 @@ async def send_start(c, chat, img, caption, kb, reply_id=None):
     return await ui_send(chat, _strip_pe(caption), kb, reply_id=reply_id)
 
 async def update_start(c, q, img, caption, kb):
-    """Edit the current message into the start screen - never deletes it."""
     chat, mid = q.message.chat.id, q.message.id
     if is_url(img):
         try: return await ui_edit(chat, mid, f'<a href="{img}">\u200b</a>\n{caption}', kb, preview=img)
@@ -387,10 +377,10 @@ async def title(c, g):
     v = None
     try: v = (await asyncio.wait_for(c.get_chat(g), 5)).title
     except Exception: pass
-    if not v:  # pyrogram may not know the peer yet - the Bot API always can by id
+    if not v:
         try: v = (await asyncio.wait_for(raw_post("getChat", {"chat_id": g}), 8)).get("title")
         except Exception: pass
-    if not v:  # last saved name (stored when the group was connected / seen)
+    if not v:
         v = ((await ch.find_one({"_id": g}, {"title": 1})) or {}).get("title")
         if not v: return t[0] if t else smallcaps("unknown group")
     else: await ch.update_one({"_id": g}, {"$set": {"title": v}}, upsert=True)
@@ -461,7 +451,6 @@ async def start(c, m):
     await ship(c, m, sc_html(HELP_TEXT))
 
 async def sb_show(c, q, txt, rows):
-    """Edit the tapped message in place (text or photo caption) - never deletes it."""
     try: await edit_any(q.message.chat.id, q.message.id, txt, rows)
     except Exception as e:
         log.warning("sb_show: edit failed (%s) -> sending new", e)
@@ -578,7 +567,7 @@ def kh(k): return hashlib.md5(k.encode()).hexdigest()[:10]
 
 async def fl_kb(g, page=0):
     ds = sorted([(d["k"], d.get("mt", "word")) async for d in fl.find({"g": g}, {"k": 1, "mt": 1})])
-    ks, pre = len(ds), {"regex": "re: ", "contains": "~ "}
+    ks, pre = len(ds), {"regex": "re: ", "contains": "\~ "}
     pages = max(1, -(-ks // 8)); page = max(0, min(page, pages - 1))
     rows = [[R((pre.get(mt, "") + k)[:32], cb=f"fv:{g}:{kh(k)}:{page}"), R("🗑", cb=f"fd:{g}:{kh(k)}:{page}", s=BTN_COLOR["delete"])] for k, mt in ds[page * 8:page * 8 + 8]]
     if pages > 1:
@@ -847,7 +836,9 @@ async def tgt_user(c, m):
 async def warn_cmd(c, m):
     g, u = await tgt_user(c, m)
     if not g: return
-    if await is_adm(c, g, u.id): return await ship(c, m, f"<b>❌ {smallcaps('cannot warn')}</b>\n\n<blockquote>{smallcaps('i can’t warn admins.')}</blockquote>")
+    # Fixed: no backslash inside f-string expression
+    if await is_adm(c, g, u.id):
+        return await ship(c, m, f"<b>❌ {smallcaps('cannot warn')}</b>\n\n<blockquote>{smallcaps('i cannot warn admins.')}</blockquote>")
     await think(c, m)
     txt, kb = await add_warn(c, g, u, " ".join(m.command[1:]) or smallcaps("no reason given"))
     await ship(c, m, txt, kb)
@@ -976,7 +967,7 @@ async def punish(c, g, m, why):
     asyncio.create_task(tmp(c, g, note, 60, kb))
     return True
 
-@app.on_message(filters.group & ~filters.service, group=5)
+@app.on_message(filters.group & \~filters.service, group=5)
 async def guard(c, m):
     g, u = m.chat.id, m.from_user
     if not u or u.is_self or u.id == 777000: return
@@ -1101,7 +1092,7 @@ async def cancel(c, m):
     PEND.pop(m.from_user.id, None)
     await ship(c, m, f"<b>❌ {smallcaps('cancelled')}</b>")
 
-@app.on_message(filters.private & pend & ~filters.regex(r"^/"), group=2)
+@app.on_message(filters.private & pend & \~filters.regex(r"^/"), group=2)
 async def wel_capture(c, m):
     uid = m.from_user.id; g = PEND.pop(uid)
     ft = fid = None
@@ -1148,7 +1139,7 @@ def hit(k, mt, txt):
         return re.search(rf"(?<!\w){re.escape(k)}(?!\w)", txt, re.I) is not None
     except re.error: return False
 
-@app.on_message(filters.group & filters.text & ~filters.regex(r"^[/!]"), group=10)
+@app.on_message(filters.group & filters.text & \~filters.regex(r"^[/!]"), group=10)
 async def listen(c, m):
     g = m.chat.id
     if g not in SEEN:
@@ -1231,7 +1222,6 @@ async def admins(c, m):
 
 # ---------------------------------------------------- premium emojis
 def custom_emojis(msg):
-    """[(emoji, custom_emoji_id)] for every premium emoji in a message's text/caption."""
     if not msg: return []
     t, ents = msg.text or msg.caption or "", msg.entities or msg.caption_entities or []
     u, out = t.encode("utf-16-le"), []
