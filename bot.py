@@ -86,7 +86,7 @@ async def raw_post(method, pl):
 
 def _lpo(preview):
     o = {"is_disabled": not preview}
-    if preview: o.update(show_above_link=True, prefer_large_media=True)
+    if preview: o.update(show_above_text=True, prefer_large_media=True)
     return o
 
 async def ui_send(chat, text, rows=None, reply_id=None, preview=False):
