@@ -68,6 +68,7 @@ PREMIUM_EMOJIS = {
     "heart": ("", "❤️"),   # add your ID (or use /addemoji in the bot)
     "crown": ("", "👑"),   # add your ID (or use /addemoji in the bot)
     "check": ("", "✅"),   # add your ID (or use /addemoji in the bot)
+    "back":(5447651546613449378", "◀")
 }
 
 # Normal emoji -> premium (custom) emoji ID. Every bot menu/reply automatically swaps
