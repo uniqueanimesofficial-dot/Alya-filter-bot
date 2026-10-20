@@ -68,7 +68,7 @@ PREMIUM_EMOJIS = {
     "heart": ("5388790256772331442", "❤️"),   # add your ID (or use /addemoji in the bot)
     "crown": ("6088924467810015164", "👑"),   # add your ID (or use /addemoji in the bot)
     "check": ("5447153029759397673", "✅"),   # add your ID (or use /addemoji in the bot)
-    "back":("5447651546613449378", "◀"),
+    "back":("5447651546613449378", "◀️"),
     "note":("5956561916573782596", "📋")
 }
 
