@@ -967,7 +967,7 @@ async def punish(c, g, m, why):
     asyncio.create_task(tmp(c, g, note, 60, kb))
     return True
 
-@app.on_message(filters.group & \~filters.service, group=5)
+@app.on_message(filters.group & ~filters.service, group=5)
 async def guard(c, m):
     g, u = m.chat.id, m.from_user
     if not u or u.is_self or u.id == 777000: return
