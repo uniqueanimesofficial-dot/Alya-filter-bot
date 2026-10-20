@@ -1139,7 +1139,7 @@ def hit(k, mt, txt):
         return re.search(rf"(?<!\w){re.escape(k)}(?!\w)", txt, re.I) is not None
     except re.error: return False
 
-@app.on_message(filters.group & filters.text & \~filters.regex(r"^[/!]"), group=10)
+@app.on_message(filters.group & filters.text & ~filters.regex(r"^[/!]"), group=10)
 async def listen(c, m):
     g = m.chat.id
     if g not in SEEN:
