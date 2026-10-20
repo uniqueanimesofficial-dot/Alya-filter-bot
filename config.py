@@ -33,6 +33,10 @@ START_IMGS = [
 # Emojis that cycle during the /start animation
 LOAD_EMOJIS = ["⚙️", "🔄", "⏳", "✨"]
 
+# Chance (0.0 - 1.0) that the small "wait a sec..." loading animation is shown
+# on commands / button taps. The /start "starting" animation always plays.
+ANIM_CHANCE = 0.35
+
 # Live (animated) reaction put on a plain /start message - one is picked at random.
 # Must be emojis Telegram allows as reactions. Leave empty [] to turn off.
 START_REACTIONS = ["🔥", "❤", "⚡", "🎉", "🥰", "😍", "👍"]
@@ -64,6 +68,47 @@ PREMIUM_EMOJIS = {
     "heart": ("5368324170671202286", "❤️"), 
     "crown": ("5465421548791234567", "👑"), # Replace ID with yours!
     "check": ("5465421548791234568", "✅"), # Replace ID with yours!
+}
+
+# Normal emoji -> premium (custom) emoji ID. Every bot menu/reply automatically swaps
+# these emojis for the premium version. Leave an ID "" to keep the normal emoji.
+# Get IDs by forwarding a message with the premium emoji to @RawDataBot (custom_emoji_id).
+# If Telegram rejects an ID, the message is still sent with the normal emoji.
+EMOJI_IDS = {
+    "👋": PREMIUM_EMOJIS["wave"][0],
+    "🔥": PREMIUM_EMOJIS["fire"][0],
+    "⚙️": PREMIUM_EMOJIS["settings"][0],
+    "❤️": PREMIUM_EMOJIS["heart"][0],
+    "👑": PREMIUM_EMOJIS["crown"][0],
+    "✅": PREMIUM_EMOJIS["check"][0],
+    "❌": "",
+    "⛔": "",
+    "⚠️": "",
+    "🚫": "",
+    "🚨": "",
+    "📋": "",
+    "📭": "",
+    "📊": "",
+    "📎": "",
+    "🔗": "",
+    "🗑": "",
+    "✏️": "",
+    "👁": "",
+    "🔛": "",
+    "⏱": "",
+    "🌊": "",
+    "🧪": "",
+    "↪️": "",
+    "↩️": "",
+    "❓": "",
+    "🆔": "",
+    "👤": "",
+    "🤖": "",
+    "👥": "",
+    "✨": "",
+    "⏳": "",
+    "🔄": "",
+    "▶": "",
 }
 
 # ==========================================
