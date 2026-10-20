@@ -148,7 +148,6 @@ HELP_TEXT = """<b>🤖 filter bot</b>
 • <code>/export</code> - save filters as a file | <code>/import</code> (reply to it) [replace]
 • <code>/copyfilters</code> -100id - copy filters from another group
 • <code>/smallcaps</code> on|off - small caps text in this group</blockquote>
-
 <blockquote expandable><b>⚙️ filter modes & buttons</b>
 • <code>regex:^hi</code> or <code>contains:price</code> (default = whole word)
 • reply to a post (media + buttons) with <code>/filter any words</code>
@@ -157,7 +156,6 @@ HELP_TEXT = """<b>🤖 filter bot</b>
 • <code>/color</code> word red green - set button colours
 • close matches ("blue" for filter "blue box") are offered as buttons
 • bot owner's filters: buttons are blue, green, blue, green... by default</blockquote>
-
 <blockquote expandable><b>👑 bot owner / admins</b>
 • <code>/broadcast</code> (reply) | <code>/stats</code> | <code>/addadmin</code> id | <code>/rmadmin</code> id
 • <code>/addemoji</code> (send or reply with premium emojis) | <code>/emojis</code> | <code>/delemoji</code> emoji
