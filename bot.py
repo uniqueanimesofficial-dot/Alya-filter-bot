@@ -335,15 +335,6 @@ def sc_html(t):
 BACK = lambda: [[R(smallcaps("◀ back"), cb="sb:back", s=BTN_COLOR["back"])]]
 
 async def send_start(c, chat, img, caption, kb, reply_id=None):
-    # Send image with caption attached directly underneath
-    try:
-        return await raw_send_photo(
-            chat, img, caption, kb, reply_id
-        )
-    except Exception as e:
-        log.warning("start: photo failed (%s)", e)
-
-    # Fallback to image preview if sending the photo fails
     if is_url(img):
         try:
             return await ui_send(
@@ -356,13 +347,13 @@ async def send_start(c, chat, img, caption, kb, reply_id=None):
         except Exception as e:
             log.warning("start: preview failed (%s)", e)
 
-    # Final fallback: send text only
+    # Fallback only if the webpage preview fails
     try:
-        return await ui_send(
-            chat, caption, kb, reply_id=reply_id
+        return await raw_send_photo(
+            chat, img, caption, kb, reply_id
         )
     except Exception as e:
-        log.warning("start: text failed (%s)", e)
+        log.warning("start: photo failed (%s)", e)
 
     return await ui_send(
         chat, _strip_pe(caption), kb, reply_id=reply_id
