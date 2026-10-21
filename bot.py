@@ -388,8 +388,18 @@ async def _ttl(msg, ttl):
 
 def anim_roll(): return random.random() < ANIM_CHANCE
 
+async def act(c, chat, rounds=3, gap=1.3):
+    for _ in range(rounds):
+        for a in [getattr(ChatAction, n) for n in ("CHOOSE_STICKER", "PLAYING") if hasattr(ChatAction, n)] or [ChatAction.TYPING]:
+            try: await c.send_chat_action(chat, a)
+            except Exception: return
+            await asyncio.sleep(gap)
+
+def animate(c, chat): bg(act(c, chat))      # shows "choosing a sticker" / "playing a game" under the bot's name
+
 async def think(c, m, base="wait a sec", emojis=None, ticks=3, delay=0.4, ttl=10, force=False):
     if not m.from_user: return None
+    animate(c, m.chat.id)
     if not force and not anim_roll(): return None
     msg = None
     for i in range(1, ticks + 1):
@@ -1370,7 +1380,7 @@ async def welcome(c, m):
     if not users: return
     w = await wc.find_one({"_id": g})
     if not w or not w.get("on"): return
-    await c.send_chat_action(g, ChatAction.TYPING)
+    animate(c, g)
     d = {"t": await wel_text(c, w.get("t"), users, m.chat), "ft": w.get("ft"), "fid": w.get("fid"), "b": w.get("b")}
     r = await send(c, m, d)
     if r and w.get("ad"): asyncio.create_task(later(c, g, r if isinstance(r, int) else getattr(r, "id", r), w["ad"]))
@@ -1456,7 +1466,7 @@ async def deliver(c, m, g, k, reply_id=None):
         return await fs_prompt(c, m, f"fj:{g}:{kh(k)}:{m.id}", 45)
     rid = reply_id or (m.reply_to_message.id if m.reply_to_message else m.id)
     try:
-        await c.send_chat_action(m.chat.id, ChatAction.TYPING)
+        animate(c, m.chat.id)
         if anim_roll():
             loader = await ui_send(m.chat.id, f"<b><i>{smallcaps('finding...')}</i></b>", reply_id=m.id)
             await asyncio.sleep(0.8)
@@ -1525,6 +1535,8 @@ async def listen(c, m):
 @app.on_chat_member_updated()
 async def tracker(c, u):
     n, o = u.new_chat_member, u.old_chat_member
+    if FSUB and u.chat.id == FSUB and (n or o) and (n or o).user:          # someone joined/left the force-sub channel
+        FSC.pop((n or o).user.id, None); FSP.pop((u.chat.id, (n or o).user.id), None)
     x = n or o
     if u.chat.type == T.PRIVATE or not x or not x.user.is_self: return
     kind = smallcaps("channel" if u.chat.type == T.CHANNEL else "group")
@@ -1593,14 +1605,17 @@ async def bc_cb(c, q):
 
 # ---------------------------------------------------- force subscribe
 FSUB, FSLINK, FSTITLE = 0, "", ""
-FSC, FSP = {}, {}
+FSC, FSP, FSWARN = {}, {}, [0.0]
 
 async def fs_ok(c, uid, fresh=False):
     if not FSUB or sudo(uid): return True
-    if not fresh and time.time() - FSC.get(uid, 0) < 300: return True
+    if not fresh and time.time() - FSC.get(uid, 0) < 20: return True
+    FSC.pop(uid, None)
     try: st_ = (await raw_post("getChatMember", {"chat_id": FSUB, "user_id": uid}))
     except Exception as e:
         if "not found" in str(e).lower() and "user" in str(e).lower(): return False
+        if time.time() - FSWARN[0] > 3600:
+            FSWARN[0] = time.time(); L("start", f"<b>⚠️ {smallcaps('force subscribe cannot check members')}</b>\n\n<blockquote><code>{html.escape(str(e))}</code>\n{smallcaps('make the bot an admin of the force-sub channel, otherwise everyone is let in.')}</blockquote>")
         log.warning("force-sub check failed (%s) - add the bot as admin in the channel. letting the user in.", e); return True
     ok = st_.get("status") in ("creator", "administrator", "member") or (st_.get("status") == "restricted" and st_.get("is_member"))
     if ok: FSC[uid] = time.time()
