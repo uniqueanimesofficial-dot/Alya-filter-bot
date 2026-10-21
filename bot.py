@@ -56,7 +56,7 @@ def greet():
     return smallcaps("good night")
 
 def start_txt(u):
-return (
+    return (
 f"<blockquote><b>{smallcaps('hey')} "
 f"{smallcaps(u.first_name or 'friend')} ツ, "
 f"{greet()} {pe('wave')}</b></blockquote>\n\n"
@@ -67,7 +67,7 @@ f"{maint_txt()}"
 )
 
 def maint_txt():
-return (
+    return (
 f'<blockquote>▶ <b>{smallcaps("maintained by")} :</b> '
 f'<a href="{MAINTAINER_URL}"><b>{MAINTAINER}</b></a>'
 f'</blockquote>'
