@@ -1,6 +1,8 @@
 import asyncio, contextvars, difflib, hashlib, html, io, json, logging, os, random, re, time
 from collections import deque
 from datetime import datetime, timedelta
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from types import SimpleNamespace
 asyncio.set_event_loop(asyncio.new_event_loop())
 from aiohttp import ClientSession, ClientTimeout, web
@@ -49,11 +51,16 @@ def pe(name):
     return data[1]
 
 def greet():
-    h = datetime.now().hour
-    if 5 <= h < 12: return smallcaps("good morning")
-    if 12 <= h < 17: return smallcaps("good afternoon")
-    if 17 <= h < 22: return smallcaps("good evening")
-    return smallcaps("good night")
+    hour = datetime.now(ZoneInfo("Asia/Kolkata")).hour
+
+    if 5 <= hour < 12:
+        return smallcaps("good morning")
+    elif 12 <= hour < 17:
+        return smallcaps("good afternoon")
+    elif 17 <= hour < 21:
+        return smallcaps("good evening")
+    else:
+        return smallcaps("good night")
 
 def start_txt(u):
     return (
