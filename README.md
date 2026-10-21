@@ -113,11 +113,6 @@ python bot.py
   </a>
 </p>
 
-<p align="center">
-  <a href="https://t.me/Alya_FilterBot">
-    🎀 ᴅᴇᴍᴏ ʙᴏᴛ 💗
-  </a>
-</p>
 
 ## 👑 ᴄʀᴇᴅɪᴛs
 
