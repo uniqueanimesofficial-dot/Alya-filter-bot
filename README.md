@@ -105,15 +105,6 @@ python bot.py
 3. ᴇɴᴛᴇʀ ʏᴏᴜʀ sᴇᴀʀᴄʜ ǫᴜᴇʀʏ.
 4. ᴄʜᴏᴏsᴇ ᴛʜᴇ ғɪʟᴇ ʏᴏᴜ ɴᴇᴇᴅ.
 
-## 🎀 ᴅᴇᴍᴏ
-
-<p align="center">
-  <a href="https://t.me/Alya_FilterBot">
-    <img src="https://img.shields.io/badge/ᴏᴘᴇɴ_ᴀʟʏᴀ-ᴛᴇʟᴇɢʀᴀᴍ-ff69b4?style=for-the-badge&logo=telegram&logoColor=white" alt="Open ALYA on Telegram" />
-  </a>
-</p>
-
-
 ## 👑 ᴄʀᴇᴅɪᴛs
 
 - 🎀 ʙᴏᴛ ɴᴀᴍᴇ: ᴀʟʏᴀ ғɪʟᴛᴇʀ ʙᴏᴛ
