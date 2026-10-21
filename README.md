@@ -4,7 +4,9 @@
        alt="ALYA Anime Banner" />
 </p>
 
-<h1 align="center">🎀 ᴀʟʏᴀ ғɪʟᴛᴇʀ ʙᴏᴛ 💗</h1>
+<h1 align="center">
+  <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&weight=800&size=35&pause=1000&color=FF69B4&center=true&vCenter=true&width=600&lines=%F0%9F%8E%80+ALYA+FILTER+BOT+%F0%9F%92%97;%E3%81%B8%E3%82%88%E3%82%93%2C+SENPAI!+%E2%99%A1;YOUR+CUTE+FILTER+ASSISTANT" alt="Animated ALYA Filter Bot Title" />
+</h1>
 
 <p align="center">
   ♡ ʜᴇʏʏ, sᴇɴᴘᴀɪ! ɪ'ᴍ ᴀʟʏᴀ~ ♡<br>
@@ -14,9 +16,6 @@
 <p align="center">
   <a href="https://t.me/Alya_FilterBot">
     <img src="https://img.shields.io/badge/✨_ᴛʀʏ_ᴀʟʏᴀ-ᴅᴇᴍᴏ-ff69b4?style=for-the-badge&logo=telegram&logoColor=white" alt="ALYA Demo" />
-  </a>
-  <a href="https://github.com/uniqueanimesofficial-dot/Alya_Filters_Bot">
-    <img src="https://img.shields.io/badge/ɢɪᴛʜᴜʙ-sᴏᴜʀᴄᴇ-181717?style=for-the-badge&logo=github&logoColor=white" alt="GitHub Source" />
   </a>
 </p>
 
