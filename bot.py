@@ -56,10 +56,10 @@ def greet():
     return smallcaps("good night")
 
 def start_txt(u):
-    return (f"{smallcaps('hey')} {smallcaps(u.first_name or 'friend')} ツ, {greet()} {pe('wave')}\n\n"
+    return (f"<blockquote><b>{smallcaps('hey')} {smallcaps(u.first_name or 'friend')} ツ, {greet()} {pe('wave')}</blockquote></b>\n\n"
             f"{smallcaps('i am the most powerful auto filter bot with premium features,')}\n"
-            f"{smallcaps('just add me to your group and enjoy!')} {pe('fire')}\n\n"
-            f"{maint_txt()}")
+            f"<b>{smallcaps('just add me to your group and enjoy!')} {pe('fire')}\n\n"
+            f"{maint_txt()}</b>")
 
 def maint_txt():
     # Fixed mismatched HTML tags
@@ -309,9 +309,9 @@ def start_kb(idx, uname, sid=0):
     c = BTN_COLOR
     return [
         [R(ch, cb=f"sb:img:{idx}:{sid}", s=c["letters"]) for ch in smallcaps(BOT_NAME)],
-        [R(smallcaps("add me to your group"), url=f"https://t.me/{uname}?startgroup=true", s=c["add_group"])],
-        [R(smallcaps("commands"), cb="sb:help", s=c["commands"]), R(smallcaps("settings"), cb="sb:set", s=c["settings"])],
-        [R(smallcaps("connections"), cb="sb:conn", s=c["connections"]), R(smallcaps("about"), cb="sb:about", s=c["about"])],
+        [R(smallcaps("• add me to your group •"), url=f"https://t.me/{uname}?startgroup=true", s=c["add_group"])],
+        [R(smallcaps("• commands •"), cb="sb:help", s=c["commands"]), R(smallcaps("• settings •"), cb="sb:set", s=c["settings"])],
+        [R(smallcaps("• connections •"), cb="sb:conn", s=c["connections"]), R(smallcaps("• about •"), cb="sb:about", s=c["about"])],
         [R(ch, cb=f"sb:x:{sid}", s=c.get("close", "red")) for ch in smallcaps("close")],
     ]
 
