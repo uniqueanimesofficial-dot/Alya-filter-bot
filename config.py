@@ -29,7 +29,7 @@ LOG_CHANNEL = int(os.environ.get("LOG_CHANNEL", "0") or 0)
 
 # Start menu images (Direct URLs for preview mode, or Telegram File IDs)
 START_IMGS = [
-    "https://i.ibb.co/237ZFmGc/c-VVvvq-Pc.jpg", "https://i.ibb.co/Bvg3P2t/NJk-Mma6j.jpg", "https://i.ibb.co/JFM7ptss/uq-X5-CAUy.jpg", "https://i.ibb.co/tM1fHz1g/WLlz5wpd.jpg", "https://i.ibb.co/cKZ7yKLY/x5u-O4-XKx.jpg", "https://i.ibb.co/6R3w6hyg/m-Llp-Lu8-T.jpg"
+    "https://i.ibb.co/237ZFmGc/c-VVvvq-Pc.jpg", "https://i.ibb.co/Bvg3P2t/NJk-Mma6j.jpg", "https://i.ibb.co/JFM7ptss/uq-X5-CAUy.jpg", "https://i.ibb.co/tM1fHz1g/WLlz5wpd.jpg", "https://i.ibb.co/cKZ7yKLY/x5u-O4-XKx.jpg", "https://i.ibb.co/6R3w6hyg/m-Llp-Lu8-T.jpg", "https://i.ibb.co/FLP1TXMP/z-B2ece-Ks.jpg", "https://i.ibb.co/bj8jB567/Dws48F0o.jpg"
     # Add your other ibb links here
 ]
 
