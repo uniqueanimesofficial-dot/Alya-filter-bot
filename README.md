@@ -113,12 +113,16 @@ python bot.py
   </a>
 </p>
 
-**ᴅᴇᴍᴏ ʟɪɴᴋ:** https://t.me/Alya_FilterBot
+<p align="center">
+  <a href="https://t.me/Alya_FilterBot">
+    🎀 ᴅᴇᴍᴏ ʙᴏᴛ 💗
+  </a>
+</p>
 
 ## 👑 ᴄʀᴇᴅɪᴛs
 
 - 🎀 ʙᴏᴛ ɴᴀᴍᴇ: ᴀʟʏᴀ ғɪʟᴛᴇʀ ʙᴏᴛ
-- 💗 ᴍʏ sᴇɴᴘᴀɪ: Pʀɨʍɛ ƈօʀɛ
+- 💗 ᴍʏ sᴇɴᴘᴀɪ: <a href="t.me/PrimeCoreHQ">Pʀɨʍɛ ƈօʀɛ</a>
 - 🐍 ʟᴀɴɢᴜᴀɢᴇ: ᴘʏᴛʜᴏɴ
 - 💌 ᴘʟᴀᴛғᴏʀᴍ: ᴛᴇʟᴇɢʀᴀᴍ
 
