@@ -1,98 +1,132 @@
-🎀 ᴀʟʏᴀ ғɪʟᴛᴇʀ ʙᴏᴛ 💗
+<p align="center">
+  <img src="https://i.ibb.co/cKZ7yKLY/x5u-O4-XKx.jpg"
+       width="100%"
+       alt="ALYA Anime Banner" />
+</p>
+
+<h1 align="center">🎀 ᴀʟʏᴀ ғɪʟᴛᴇʀ ʙᴏᴛ 💗</h1>
 
 <p align="center">
-  <img src="https://capsule-render.vercel.app/api?type=soft&color=gradient&height=180&section=header&text=ALYA%20FILTER%20BOT&fontSize=35&fontColor=ffffff&animation=fadeIn&fontAlignY=55" width="100%" />
-</p><p align="center">
-  <b>♡ ʜᴇʏʏ, sᴇɴᴘᴀɪ! ɪ'ᴍ ᴀʟʏᴀ~ ♡</b><br>
-  ʏᴏᴜʀ ᴄᴜᴛᴇ ᴀɴᴅ ʟᴏʏᴀʟ ᴛᴇʟᴇɢʀᴀᴍ ғɪʟᴛᴇʀ ᴀssɪsᴛᴀɴᴛ! 🌸
-</p><p align="center">
-  <img src="https://img.shields.io/badge/Python-3.10%2B-blue?style=for-the-badge&logo=python&logoColor=white" />
-  <img src="https://img.shields.io/badge/Platform-Telegram-26A5E4?style=for-the-badge&logo=telegram&logoColor=white" />
-  <img src="https://img.shields.io/badge/Status-Online-ff69b4?style=for-the-badge" />
-</p>---
+  ♡ ʜᴇʏʏ, sᴇɴᴘᴀɪ! ɪ'ᴍ ᴀʟʏᴀ~ ♡<br>
+  🌸 ʏᴏᴜʀ ᴄᴜᴛᴇ ᴀɴᴅ ʟᴏʏᴀʟ ғɪʟᴛᴇʀ ᴀssɪsᴛᴀɴᴛ!
+</p>
 
-🌸 ᴀʙᴏᴜᴛ ᴀʟʏᴀ
+<p align="center">
+  <a href="https://t.me/Alya_FilterBot">
+    <img src="https://img.shields.io/badge/✨_ᴛʀʏ_ᴀʟʏᴀ-ᴅᴇᴍᴏ-ff69b4?style=for-the-badge&logo=telegram&logoColor=white" alt="ALYA Demo" />
+  </a>
+  <a href="https://github.com/uniqueanimesofficial-dot/Alya_Filters_Bot">
+    <img src="https://img.shields.io/badge/ɢɪᴛʜᴜʙ-sᴏᴜʀᴄᴇ-181717?style=for-the-badge&logo=github&logoColor=white" alt="GitHub Source" />
+  </a>
+</p>
+
+<p align="center">
+  💌 ᴛʏᴘᴇ ᴀ ǫᴜᴇʀʏ & ʟᴇᴛ ᴍᴇ ғɪɴᴅ ʏᴏᴜʀ ғɪʟᴇs, sᴇɴᴘᴀɪ~ ♡
+</p>
+
+---
+
+## 🌸 ᴀʙᴏᴜᴛ ᴀʟʏᴀ
 
 ᴋᴏɴɴɪᴄʜɪᴡᴀ, sᴇɴᴘᴀɪ! (｡•̀ᴗ-)✧
 
-ɪ'ᴍ ᴀʟʏᴀ, ʏᴏᴜʀ ᴀᴅᴏʀᴀʙʟᴇ ᴛᴇʟᴇɢʀᴀᴍ ғɪʟᴛᴇʀ ʙᴏᴛ! 💗 ɪ'ᴍ ʜᴇʀᴇ ᴛᴏ ʜᴇʟᴘ ʏᴏᴜ ғɪɴᴅ ʏᴏᴜʀ ғᴀᴠᴏᴜʀɪᴛᴇ ғɪʟᴇs ᴡɪᴛʜ ᴇᴀsᴇ.
+ɪ'ᴍ **ᴀʟʏᴀ**, ʏᴏᴜʀ ᴀᴅᴏʀᴀʙʟᴇ ᴛᴇʟᴇɢʀᴀᴍ ғɪʟᴛᴇʀ ʙᴏᴛ! 💗
 
-✨ ᴍʏ ᴍɪssɪᴏɴ: ᴍᴀᴋᴇ sᴇᴀʀᴄʜɪɴɢ ғᴏʀ ғɪʟᴇs ᴏɴ ᴛᴇʟᴇɢʀᴀᴍ sɪᴍᴘʟᴇ, ғᴀsᴛ, ᴀɴᴅ ᴇɴᴊᴏʏᴀʙʟᴇ!
+ɪ'ᴍ ʜᴇʀᴇ ᴛᴏ ʜᴇʟᴘ ʏᴏᴜ sᴇᴀʀᴄʜ ғᴏʀ ʏᴏᴜʀ ғᴀᴠᴏᴜʀɪᴛᴇ ғɪʟᴇs ᴡɪᴛʜ ᴇᴀsᴇ.
 
-💖 ғᴇᴀᴛᴜʀᴇs
+✨ ᴍʏ ᴍɪssɪᴏɴ: ᴍᴀᴋᴇ ғɪʟᴇ sᴇᴀʀᴄʜɪɴɢ sɪᴍᴘʟᴇ, ғᴀsᴛ, ᴀɴᴅ ᴇɴᴊᴏʏᴀʙʟᴇ!
 
-- 🔎 sᴍᴀʀᴛ sᴇᴀʀᴄʜ — ғɪɴᴅ ғɪʟᴇs ᴜsɪɴɢ sᴇᴀʀᴄʜ ǫᴜᴇʀɪᴇs.
-- 📂 ғɪʟᴇ ғɪʟᴛᴇʀs — sᴇᴀʀᴄʜ ᴛʜʀᴏᴜɢʜ ᴀᴠᴀɪʟᴀʙʟᴇ ғɪʟᴇs.
-- ⚡ ғᴀsᴛ ʀᴇsᴘᴏɴsᴇs — ɢᴇᴛ ʀᴇsᴜʟᴛs ᴡɪᴛʜ ᴀɴ ᴇᴀsʏ-ᴛᴏ-ᴜsᴇ ɪɴᴛᴇʀғᴀᴄᴇ.
-- 🎀 ᴄᴜᴛᴇ ᴘᴇʀsᴏɴᴀʟɪᴛʏ — ᴀ ʟɪᴛᴛʟᴇ ᴀɴɪᴍᴇ ᴍᴀɢɪᴄ ɪɴ ʏᴏᴜʀ ᴛᴇʟᴇɢʀᴀᴍ ᴄʜᴀᴛs.
-- 🛡️ ɢʀᴏᴜᴘ sᴜᴘᴘᴏʀᴛ — ᴅᴇsɪɢɴᴇᴅ ᴛᴏ ᴡᴏʀᴋ ᴡɪᴛʜ sᴜᴘᴘᴏʀᴛᴇᴅ ɢʀᴏᴜᴘ ғᴇᴀᴛᴜʀᴇs.
+## 💖 ғᴇᴀᴛᴜʀᴇs
 
-ɴᴏᴛᴇ: ᴀᴠᴀɪʟᴀʙʟᴇ ғᴇᴀᴛᴜʀᴇs ᴅᴇᴘᴇɴᴅ ᴏɴ ʏᴏᴜʀ ʙᴏᴛ's ɪᴍᴘʟᴇᴍᴇɴᴛᴀᴛɪᴏɴ ᴀɴᴅ ᴄᴏɴғɪɢᴜʀᴀᴛɪᴏɴ.
+- 🔎 **sᴍᴀʀᴛ sᴇᴀʀᴄʜ** — ғɪɴᴅ ғɪʟᴇs ᴜsɪɴɢ sᴇᴀʀᴄʜ ǫᴜᴇʀɪᴇs.
+- 📂 **ғɪʟᴇ ғɪʟᴛᴇʀs** — sᴇᴀʀᴄʜ ᴀᴠᴀɪʟᴀʙʟᴇ ғɪʟᴇs.
+- ⚡ **ғᴀsᴛ ʀᴇsᴘᴏɴsᴇs** — ᴀɴ ᴇᴀsʏ-ᴛᴏ-ᴜsᴇ ɪɴᴛᴇʀғᴀᴄᴇ.
+- 🎀 **ᴄᴜᴛᴇ ᴘᴇʀsᴏɴᴀʟɪᴛʏ** — ᴀ ʟɪᴛᴛʟᴇ ᴀɴɪᴍᴇ ᴍᴀɢɪᴄ.
+- 🛡️ **ɢʀᴏᴜᴘ sᴜᴘᴘᴏʀᴛ** — ғᴏʀ sᴜᴘᴘᴏʀᴛᴇᴅ ɢʀᴏᴜᴘ ғᴇᴀᴛᴜʀᴇs.
 
-🚀 ᴅᴇᴘʟᴏʏᴍᴇɴᴛ
+> ɴᴏᴛᴇ: ᴀᴄᴛᴜᴀʟ ғᴇᴀᴛᴜʀᴇs ᴅᴇᴘᴇɴᴅ ᴏɴ ᴛʜᴇ ɪᴍᴘʟᴇᴍᴇɴᴛᴀᴛɪᴏɴ ɪɴ ᴛʜᴇ sᴏᴜʀᴄᴇ ᴄᴏᴅᴇ.
 
-1. ᴄʟᴏɴᴇ ᴛʜᴇ ʀᴇᴘᴏsɪᴛᴏʀʏ
+## 🚀 ɪɴsᴛᴀʟʟᴀᴛɪᴏɴ
 
+### 1. ᴄʟᴏɴᴇ ᴛʜᴇ ʀᴇᴘᴏsɪᴛᴏʀʏ
+
+```bash
 git clone https://github.com/uniqueanimesofficial-dot/Alya_Filters_Bot.git
 cd Alya_Filters_Bot
+```
 
-2. ɪɴsᴛᴀʟʟ ᴅᴇᴘᴇɴᴅᴇɴᴄɪᴇs
+### 2. ɪɴsᴛᴀʟʟ ʀᴇǫᴜɪʀᴇᴍᴇɴᴛs
 
+```bash
 pip install -r requirements.txt
+```
 
-3. ᴄᴏɴғɪɢᴜʀᴇ ᴇɴᴠɪʀᴏɴᴍᴇɴᴛ ᴠᴀʀɪᴀʙʟᴇs
+### 3. ᴄᴏɴғɪɢᴜʀᴇ ᴛʜᴇ ʙᴏᴛ
 
-ᴄʀᴇᴀᴛᴇ ᴀ ".env" ғɪʟᴇ ɪɴ ᴛʜᴇ ᴘʀᴏᴊᴇᴄᴛ ᴅɪʀᴇᴄᴛᴏʀʏ:
+ᴄʀᴇᴀᴛᴇ ᴀ `.env` ғɪʟᴇ ɪɴ ᴛʜᴇ ᴘʀᴏᴊᴇᴄᴛ ᴅɪʀᴇᴄᴛᴏʀʏ:
 
+```env
 API_ID=your_api_id
 API_HASH=your_api_hash
 BOT_TOKEN=your_bot_token
 MONGO_URI=your_mongodb_connection_string
 DB_NAME=FilterBot
 OWNER_ID=your_telegram_user_id
+```
 
-ʀᴇᴘʟᴀᴄᴇ ᴇᴀᴄʜ ᴘʟᴀᴄᴇʜᴏʟᴅᴇʀ ᴡɪᴛʜ ʏᴏᴜʀ ᴀᴄᴛᴜᴀʟ ᴄᴏɴғɪɢᴜʀᴀᴛɪᴏɴ ᴠᴀʟᴜᴇs.
+ʀᴇᴘʟᴀᴄᴇ ᴛʜᴇ ᴘʟᴀᴄᴇʜᴏʟᴅᴇʀs ᴡɪᴛʜ ʏᴏᴜʀ ᴏᴡɴ ᴄᴏɴғɪɢᴜʀᴀᴛɪᴏɴ.
 
-⚠️ ɴᴇᴠᴇʀ sʜᴀʀᴇ ʏᴏᴜʀ ʙᴏᴛ ᴛᴏᴋᴇɴ ᴏʀ ᴅᴀᴛᴀʙᴀsᴇ ᴄʀᴇᴅᴇɴᴛɪᴀʟs ᴘᴜʙʟɪᴄʟʏ. ᴋᴇᴇᴘ ".env" ᴏᴜᴛ ᴏғ ʏᴏᴜʀ ɢɪᴛ ʀᴇᴘᴏsɪᴛᴏʀʏ.
+⚠️ ɴᴇᴠᴇʀ ᴘᴜʙʟɪsʜ ʏᴏᴜʀ ʙᴏᴛ ᴛᴏᴋᴇɴ, ᴀᴘɪ ᴄʀᴇᴅᴇɴᴛɪᴀʟs, ᴏʀ ᴅᴀᴛᴀʙᴀsᴇ ᴜʀɪ.
 
-4. sᴛᴀʀᴛ ᴛʜᴇ ʙᴏᴛ
+### 4. sᴛᴀʀᴛ ᴛʜᴇ ʙᴏᴛ
 
-ɪғ ʏᴏᴜʀ ᴍᴀɪɴ ғɪʟᴇ ɪs "bot.py", ʀᴜɴ:
+ɪғ ʏᴏᴜʀ ᴍᴀɪɴ ғɪʟᴇ ɪs `bot.py`:
 
+```bash
 python bot.py
+```
 
-ɪғ ʏᴏᴜʀ ᴇɴᴛʀʏ-ᴘᴏɪɴᴛ ғɪʟᴇ ʜᴀs ᴀ ᴅɪғғᴇʀᴇɴᴛ ɴᴀᴍᴇ, ʀᴇᴘʟᴀᴄᴇ "bot.py" ᴡɪᴛʜ ᴛʜᴀᴛ ғɪʟᴇɴᴀᴍᴇ.
+ɪғ ʏᴏᴜ ᴜsᴇ ᴀ ᴅɪғғᴇʀᴇɴᴛ ᴇɴᴛʀʏ-ᴘᴏɪɴᴛ ғɪʟᴇ, ᴜsᴇ ɪᴛs ᴀᴄᴛᴜᴀʟ ғɪʟᴇɴᴀᴍᴇ.
 
-⚙️ ʀᴇǫᴜɪʀᴇᴅ ᴄᴏɴғɪɢᴜʀᴀᴛɪᴏɴ
+## ⚙️ ᴄᴏɴғɪɢᴜʀᴀᴛɪᴏɴ
 
-ᴠᴀʀɪᴀʙʟᴇ| ᴘᴜʀᴘᴏsᴇ
-"API_ID"| ᴛᴇʟᴇɢʀᴀᴍ ᴀᴘɪ ᴀᴘᴘʟɪᴄᴀᴛɪᴏɴ ɪᴅ
-"API_HASH"| ᴛᴇʟᴇɢʀᴀᴍ ᴀᴘɪ ᴀᴘᴘʟɪᴄᴀᴛɪᴏɴ ʜᴀsʜ
-"BOT_TOKEN"| ᴛᴏᴋᴇɴ ғʀᴏᴍ ʙᴏᴛғᴀᴛʜᴇʀ
-"MONGO_URI"| ᴍᴏɴɢᴏᴅʙ ᴄᴏɴɴᴇᴄᴛɪᴏɴ sᴛʀɪɴɢ
-"DB_NAME"| ᴅᴀᴛᴀʙᴀsᴇ ɴᴀᴍᴇ
-"OWNER_ID"| ᴛᴇʟᴇɢʀᴀᴍ ᴜsᴇʀ ɪᴅ ᴏғ ᴛʜᴇ ʙᴏᴛ ᴏᴡɴᴇʀ
+| ᴠᴀʀɪᴀʙʟᴇ | ᴅᴇsᴄʀɪᴘᴛɪᴏɴ |
+|---|---|
+| `API_ID` | ᴛᴇʟᴇɢʀᴀᴍ ᴀᴘɪ ɪᴅ |
+| `API_HASH` | ᴛᴇʟᴇɢʀᴀᴍ ᴀᴘɪ ʜᴀsʜ |
+| `BOT_TOKEN` | ʙᴏᴛғᴀᴛʜᴇʀ ᴛᴏᴋᴇɴ |
+| `MONGO_URI` | ᴍᴏɴɢᴏᴅʙ ᴄᴏɴɴᴇᴄᴛɪᴏɴ |
+| `DB_NAME` | ᴅᴀᴛᴀʙᴀsᴇ ɴᴀᴍᴇ |
+| `OWNER_ID` | ʙᴏᴛ ᴏᴡɴᴇʀ's ᴛᴇʟᴇɢʀᴀᴍ ɪᴅ |
 
-💌 ʜᴏᴡ ᴛᴏ ᴜsᴇ
+## 💌 ʜᴏᴡ ᴛᴏ ᴜsᴇ
 
-1. sᴛᴀʀᴛ ᴀʟʏᴀ ᴏɴ ᴛᴇʟᴇɢʀᴀᴍ.
-2. ғᴏʟʟᴏᴡ ᴛʜᴇ ɪɴsᴛʀᴜᴄᴛɪᴏɴs ᴘʀᴏᴠɪᴅᴇᴅ ʙʏ ᴛʜᴇ ʙᴏᴛ.
-3. ᴇɴᴛᴇʀ ᴀ sᴇᴀʀᴄʜ ǫᴜᴇʀʏ ᴛᴏ ғɪɴᴅ ᴀᴠᴀɪʟᴀʙʟᴇ ғɪʟᴇs.
-4. ᴄʜᴏᴏsᴇ ᴛʜᴇ ʀᴇsᴜʟᴛ ʏᴏᴜ ɴᴇᴇᴅ.
+1. ᴏᴘᴇɴ ᴀʟʏᴀ ᴏɴ ᴛᴇʟᴇɢʀᴀᴍ.
+2. ᴘʀᴇss **sᴛᴀʀᴛ**.
+3. ᴇɴᴛᴇʀ ʏᴏᴜʀ sᴇᴀʀᴄʜ ǫᴜᴇʀʏ.
+4. ᴄʜᴏᴏsᴇ ᴛʜᴇ ғɪʟᴇ ʏᴏᴜ ɴᴇᴇᴅ.
 
-🎀 ᴛɪᴘ: ᴍᴀᴋᴇ sᴜʀᴇ ᴀʟʏᴀ ʜᴀs ᴛʜᴇ ʀᴇǫᴜɪʀᴇᴅ ᴘᴇʀᴍɪssɪᴏɴs ɪɴ ʏᴏᴜʀ ɢʀᴏᴜᴘ ᴏʀ ᴄʜᴀɴɴᴇʟ.
+## 🎀 ᴅᴇᴍᴏ
 
-👑 ᴄʀᴇᴅɪᴛs
+<p align="center">
+  <a href="https://t.me/Alya_FilterBot">
+    <img src="https://img.shields.io/badge/ᴏᴘᴇɴ_ᴀʟʏᴀ-ᴛᴇʟᴇɢʀᴀᴍ-ff69b4?style=for-the-badge&logo=telegram&logoColor=white" alt="Open ALYA on Telegram" />
+  </a>
+</p>
 
-- ʙᴏᴛ ɴᴀᴍᴇ: ᴀʟʏᴀ ғɪʟᴛᴇʀ ʙᴏᴛ
-- ᴍʏ sᴇɴᴘᴀɪ: Pʀɨʍɛ ƈօʀɛ
-- ᴘʟᴀᴛғᴏʀᴍ: ᴛᴇʟᴇɢʀᴀᴍ
-- ᴘʀᴏɢʀᴀᴍᴍɪɴɢ ʟᴀɴɢᴜᴀɢᴇ: ᴘʏᴛʜᴏɴ
+**ᴅᴇᴍᴏ ʟɪɴᴋ:** https://t.me/Alya_FilterBot
+
+## 👑 ᴄʀᴇᴅɪᴛs
+
+- 🎀 ʙᴏᴛ ɴᴀᴍᴇ: ᴀʟʏᴀ ғɪʟᴛᴇʀ ʙᴏᴛ
+- 💗 ᴍʏ sᴇɴᴘᴀɪ: Pʀɨʍɛ ƈօʀɛ
+- 🐍 ʟᴀɴɢᴜᴀɢᴇ: ᴘʏᴛʜᴏɴ
+- 💌 ᴘʟᴀᴛғᴏʀᴍ: ᴛᴇʟᴇɢʀᴀᴍ
 
 ---
 
 <p align="center">
   ᴛʜᴀɴᴋ ʏᴏᴜ ғᴏʀ ᴠɪsɪᴛɪɴɢ, sᴇɴᴘᴀɪ! 💗
   <br>
-  <i>ᴅᴏɴ'ᴛ ғᴏʀɢᴇᴛ ᴛᴏ sᴍɪʟᴇ~ ૮₍ ˶ᵔ ᵕ ᵔ˶ ₎ა</i>
+  ᴅᴏɴ'ᴛ ғᴏʀɢᴇᴛ ᴛᴏ sᴍɪʟᴇ~ ૮₍ ˶ᵔ ᵕ ᵔ˶ ₎ა
 </p>
