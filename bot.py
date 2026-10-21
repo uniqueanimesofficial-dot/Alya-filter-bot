@@ -56,14 +56,22 @@ def greet():
     return smallcaps("good night")
 
 def start_txt(u):
-    return (f"<blockquote><b>{smallcaps('hey')} {smallcaps(u.first_name or 'friend')} ツ, {greet()} {pe('wave')}</blockquote></b>\n\n"
-            f"{smallcaps('i am the most powerful auto filter bot with premium features,')}\n"
-            f"<b>{smallcaps('just add me to your group and enjoy!')} {pe('fire')}\n\n"
-            f"{maint_txt()}</b>")
+return (
+f"<blockquote><b>{smallcaps('hey')} "
+f"{smallcaps(u.first_name or 'friend')} ツ, "
+f"{greet()} {pe('wave')}</b></blockquote>\n\n"
+f"{smallcaps('i am the most powerful auto filter bot with premium features,')}\n"
+f"<b>{smallcaps('just add me to your group and enjoy!')} "
+f"{pe('fire')}</b>\n\n"
+f"{maint_txt()}"
+)
 
 def maint_txt():
-    # Fixed mismatched HTML tags
-    return f'<blockquote>▶ <b>{smallcaps("maintained by")} :</b> <a href="{MAINTAINER_URL}"><b>{MAINTAINER}</b></a></blockquote>'
+return (
+f'<blockquote>▶ <b>{smallcaps("maintained by")} :</b> '
+f'<a href="{MAINTAINER_URL}"><b>{MAINTAINER}</b></a>'
+f'</blockquote>'
+)
 
 # ------------------------------------------- raw Bot API layer
 def R(text, cb=None, url=None, s=None):
