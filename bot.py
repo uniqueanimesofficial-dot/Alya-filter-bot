@@ -1533,7 +1533,6 @@ async def deliver(c, m, g, k, reply_id=None):
     L("hit", f"<b>🎯 {smallcaps('filter triggered')}</b>\n\n<blockquote>{smallcaps('group')}: {html.escape(m.chat.title or str(g))} (<code>{g}</code>)\n{smallcaps('keyword')}: <code>{html.escape(k)}</code>\n"
              f"{smallcaps('user')}: {u.mention + ' (<code>' + str(u.id) + '</code>)' if u else smallcaps('anonymous')}" + (f"\n<a href=\"{lk}\">{smallcaps('open message')}</a>" if lk else "") + "</blockquote>")
 
-@app.on_message(filters.command(["s", "search"]))
 async def run_search(c, m, g, q):
     await think(c, m)
     ks, n = await kws(g), nrm(q)
@@ -1548,44 +1547,58 @@ async def run_search(c, m, g, q):
         return bg(_ttl(CQMsg(m.chat.id, m.chat.type, mid), 20))
     await show_buttons(c, m, g, res, "results", 120)
 
-PQ = {}
-async def pm_group(c, m, kind, q=""):
-    """in the bot's pm anybody can search: use the connected group, the remembered one, the only group, or ask"""
-    u = m.from_user.id
-    d = await cn.find_one({"_id": u}) or {}
-    if d.get("active"): return d["active"]
-    sel = (await us.find_one({"_id": u}) or {}).get("sel")
-    if sel and await ch.find_one({"_id": sel}): return sel
+PQ, UGC, IXSRC = {}, {}, {}
+
+async def user_groups(u):
+    """groups (with filters) where the bot is added and this user is a member - cached 60s"""
+    t = UGC.get(u)
+    if t and time.time() - t[1] < 60: return t[0]
     ok = []
     for g in [x["_id"] async for x in ch.find({"type": "group"})][:30]:
         if not await fl.find_one({"g": g}, {"_id": 1}): continue
         try: r = await raw_post("getChatMember", {"chat_id": g, "user_id": u})
         except Exception: continue
         if r.get("status") in ("creator", "administrator", "member") or (r.get("status") == "restricted" and r.get("is_member")): ok.append(g)
+    UGC[u] = (ok, time.time())
+    return ok
+
+async def pick_rows(c, u, kind):
+    gs = await user_groups(u)
+    ts = await asyncio.gather(*(title(c, g) for g in gs))
+    return [[R(smallcaps(t)[:40], cb=f"pg:{g}:{kind}", s="primary")] for g, t in zip(gs, ts)]
+
+async def pm_group(c, m, kind, q=""):
+    """in the bot's pm anybody can search: the group they picked, their connected group, the only group, or ask"""
+    u = m.from_user.id
+    sel = (await us.find_one({"_id": u}) or {}).get("sel")
+    if sel and await ch.find_one({"_id": sel}): return sel
+    act_ = (await cn.find_one({"_id": u}) or {}).get("active")
+    if act_: return act_
+    ok = await user_groups(u)
     if not ok:
         await reply(m, f"<b>❌ {smallcaps('no group found')}</b>\n\n<blockquote>{smallcaps('join a group where i am added, then try again. or use me inside the group.')}</blockquote>")
         return None
     if len(ok) == 1: return ok[0]
     PQ[u] = (m, q)
-    ts = await asyncio.gather(*(title(c, g) for g in ok))
-    rows = [[R(smallcaps(t)[:40], cb=f"pg:{g}:{kind}", s="primary")] for g, t in zip(ok, ts)]
     await clear_ld(c, m.chat.id, u)
-    await ship(c, m, f"<b>👥 {smallcaps('choose a group')}</b>\n\n<blockquote>{smallcaps('which group do you want to search?')}</blockquote>", rows)
+    mid = await ship(c, m, f"<b>👥 {smallcaps('choose a group')}</b>\n\n<blockquote>{smallcaps('which group do you want to search?')}</blockquote>", await pick_rows(c, u, kind))
+    if kind == "i": IXSRC[(m.chat.id, mid)] = m.id
+    return None
 
 @cbq(r"^pg:")
 async def pg_cb(c, q):
     _, g, kind = q.data.split(":"); g, u = int(g), q.from_user.id
-    if g:
-        await us.update_one({"_id": u}, {"$set": {"sel": g}}, upsert=True)
-    else:                                   # "change group"
-        await us.update_one({"_id": u}, {"$unset": {"sel": ""}})
-        await q.answer(smallcaps("send /index or /s again to choose."), show_alert=True); return
+    if not g:                                # "change group": show the list right here
+        await q.answer()
+        rows = await pick_rows(c, u, "i") + [[R(smallcaps("close"), cb="ix:x", s=BTN_COLOR.get("close", "red"))]]
+        return await edit_any(q.message.chat.id, q.message.id, f"<b>👥 {smallcaps('choose a group')}</b>\n\n<blockquote>{smallcaps('which group do you want to browse?')}</blockquote>", rows)
+    await us.update_one({"_id": u}, {"$set": {"sel": g}}, upsert=True)
     await q.answer()
     m, query = PQ.pop(u, (None, ""))
     if kind == "s" and m and query:
         await q.message.delete()
         return await run_search(c, m, g, query)
-    txt, rows = await ix_home(g, True)
+    txt, rows = await ix_home(g, True, u)
     await edit_any(q.message.chat.id, q.message.id, txt, rows)
 
 @app.on_message(filters.command(["s", "search"]))
@@ -1668,14 +1681,15 @@ async def ix_groups(g):
 def ix_head(extra=""):
     return f"<b>✦ {smallcaps('index directory')} — [{html.escape(INDEX_CATEGORY)}]</b>{extra}\n\n"
 
-async def ix_home(g, pm):
+async def ix_home(g, pm, uid=None):
     d = await ix_groups(g)
     total = sum(len(v) for v in d.values())
     txt = (ix_head() + f"<blockquote>◍ <b>{smallcaps('category')}</b> : {html.escape(INDEX_CATEGORY)}\n◍ <b>{smallcaps('total posts')}</b> : {total}</blockquote>\n"
            f"<blockquote>≡ {smallcaps('select a letter below to browse indexed posts.')}</blockquote>")
     btn = [R(x, cb=f"ix:{g}:{x}:0", s="primary" if x in d else None) for x in LETTERS + ["#"]]
     rows = [btn[i:i + 6] for i in range(0, 24, 6)] + [btn[24:]]
-    last = ([R(smallcaps("back"), cb="sb:back", s="primary"), R(smallcaps("change group"), cb="pg:0:i")] if pm else []) + [R(smallcaps("close"), cb="ix:x", s=BTN_COLOR.get("close", "red"))]
+    multi = bool(pm and uid and len(await user_groups(uid)) > 1)
+    last = ([R(smallcaps("back"), cb="sb:back", s="primary")] if pm else []) + ([R(smallcaps("change group"), cb="pg:0:i")] if multi else []) + [R(smallcaps("close"), cb="ix:x", s=BTN_COLOR.get("close", "red"))]
     return txt, rows + [last]
 
 async def ix_list(g, letter, page):
@@ -1694,19 +1708,32 @@ async def index_cmd(c, m):
     g = m.chat.id if m.chat.type in GRP else await pm_group(c, m, "i")
     if not g: return
     await think(c, m)
-    txt, rows = await ix_home(g, m.chat.type == T.PRIVATE)
-    await ship(c, m, txt, rows)
+    txt, rows = await ix_home(g, m.chat.type == T.PRIVATE, m.from_user.id)
+    IXSRC[(m.chat.id, await ship(c, m, txt, rows))] = m.id
+    while len(IXSRC) > 500: IXSRC.pop(next(iter(IXSRC)))
 
 @cbq(r"^ix:")
 async def ix_cb(c, q):
     p = q.data.split(":")
     if p[1] == "x":
-        await q.answer(); return await q.message.delete()
+        await q.answer()
+        chat, mid = q.message.chat.id, q.message.id
+        cmd = IXSRC.pop((chat, mid), None)
+        if not cmd:
+            try: cmd = (await c.get_messages(chat, mid)).reply_to_message_id
+            except Exception: cmd = None
+        ids = [mid] + ([cmd] if cmd else [])
+        try: return await raw_post("deleteMessages", {"chat_id": chat, "message_ids": ids})
+        except Exception:
+            for i in ids:
+                try: await raw_post("deleteMessage", {"chat_id": chat, "message_id": i})
+                except Exception: pass
+        return
     g, letter, page = int(p[1]), p[2], int(p[3])
     if letter != "*" and not (await ix_groups(g)).get(letter):
         return await q.answer(smallcaps(f"no posts under {letter}."), show_alert=True)
     await q.answer()
-    txt, rows = await (ix_home(g, q.message.chat.type == T.PRIVATE) if letter == "*" else ix_list(g, letter, page))
+    txt, rows = await (ix_home(g, q.message.chat.type == T.PRIVATE, q.from_user.id) if letter == "*" else ix_list(g, letter, page))
     try: await edit_any(q.message.chat.id, q.message.id, txt, rows)
     except Exception as e: log.warning("index edit failed: %s", e)
 
@@ -1790,183 +1817,6 @@ async def bc_cb(c, q):
 # ---------------------------------------------------- force subscribe
 FSUB, FSLINK, FSTITLE = 0, "", ""
 FSC, FSP, FSWARN = {}, {}, [0.0]
-
-async def fs_ok(c, uid, fresh=False):
-    if not FSUB or sudo(uid): return True
-    if not fresh and time.time() - FSC.get(uid, 0) < 20: return True
-    FSC.pop(uid, None)
-    try: st_ = (await raw_post("getChatMember", {"chat_id": FSUB, "user_id": uid}))
-    except Exception as e:
-        if "not found" in str(e).lower() and "user" in str(e).lower(): return False
-        if time.time() - FSWARN[0] > 3600:
-            FSWARN[0] = time.time(); L("start", f"<b>⚠️ {smallcaps('force subscribe cannot check members')}</b>\n\n<blockquote><code>{html.escape(str(e))}</code>\n{smallcaps('make the bot an admin of the force-sub channel, otherwise everyone is let in.')}</blockquote>")
-        log.warning("force-sub check failed (%s) - add the bot as admin in the channel. letting the user in.", e); return True
-    ok = st_.get("status") in ("creator", "administrator", "member") or (st_.get("status") == "restricted" and st_.get("is_member"))
-    if ok: FSC[uid] = time.time()
-    return bool(ok)
-
-def fs_rows(cb):
-    return [[R(f"📢 {smallcaps('join channel')}", url=FSLINK, s="primary")], [R(f"✅ {smallcaps('i joined')}", cb=cb, s="success")]]
-
-async def fs_prompt(c, m, cb, ttl=None):
-    u = m.from_user
-    if time.time() - FSP.get((m.chat.id, u.id), 0) < 20: return
-    FSP[(m.chat.id, u.id)] = time.time()
-    if len(FSP) > 2000: FSP.clear()
-    try:
-        mid = await ui_send(m.chat.id, f"<b>🔒 {smallcaps('join required')}</b>\n\n<blockquote>{smallcaps('please join')} <b>{html.escape(FSTITLE or smallcaps('our channel'))}</b> {smallcaps('to use this bot, then tap')} <b>✅ {smallcaps('i joined')}</b>.</blockquote>", fs_rows(cb), reply_id=m.id)
-        if ttl: bg(_ttl(CQMsg(m.chat.id, m.chat.type, mid), ttl))
-    except Exception as e: log.warning("fsub prompt failed: %s", e)
-
-@app.on_message(group=-8)
-async def pm_gate(c, m):
-    if m.chat.type != T.PRIVATE or not m.from_user: return
-    uid = m.from_user.id
-    r = await us.update_one({"_id": uid}, {"$set": {"n": m.from_user.first_name}, "$setOnInsert": {"t": time.time()}}, upsert=True)
-    if r.upserted_id is not None:
-        u = m.from_user
-        L("user", f"<b>👤 {smallcaps('new user')}</b>\n\n<blockquote>{smallcaps('name')}: {u.mention}\n{smallcaps('id')}: <code>{u.id}</code>\n{smallcaps('username')}: {'@' + u.username if u.username else smallcaps('none')}\n{smallcaps('total users')}: {await us.count_documents({})}</blockquote>")
-    if not await fs_ok(c, uid):
-        await fs_prompt(c, m, "fj:0:0:0")
-        m.stop_propagation()
-
-@cbq(r"^fj:")
-async def fj_cb(c, q):
-    _, g, h, mid = q.data.split(":"); g = int(g)
-    if not await fs_ok(c, q.from_user.id, fresh=True): return await q.answer(smallcaps("you have not joined yet."), show_alert=True)
-    await q.answer(smallcaps("verified ✅"))
-    if not g:
-        return await edit_any(q.message.chat.id, q.message.id, f"<b>✅ {smallcaps('verified')}</b>\n\n<blockquote>{smallcaps('thanks! send /start now.')}</blockquote>")
-    k = next((x for x in [d["k"] async for d in fl.find({"g": g}, {"k": 1})] if kh(x) == h), None)
-    d = await fl.find_one({"g": g, "k": k}) if k else None
-    if d:
-        d = dict(d)
-        if d.get("b"): d["b"] = apply_default(d["b"])
-        try: await after_post(q.message.chat.id, (await api_send(q.message.chat.id, int(mid), d)).get("message_id"), g)
-        except Exception as e: log.warning("fj send failed: %s", e)
-    await q.message.delete()
-
-@app.on_message(filters.command("fsub"))
-async def fsub_cmd(c, m):
-    global FSUB, FSLINK, FSTITLE
-    if not (m.from_user and m.from_user.id == OWNER): return
-    a = m.command[1:]
-    if not a:
-        cur = f"<code>{FSUB}</code> - {html.escape(FSTITLE)}" if FSUB else smallcaps("off")
-        return await reply(m, f"<b>🔒 {smallcaps('force subscribe')}</b>\n\n<blockquote>{smallcaps('now')}: {cur}\n{smallcaps('set')}: <code>/fsub -100xxxxxxxxxx</code> {smallcaps('or')} <code>/fsub @channel</code>\n{smallcaps('private channel: add an invite link after the id.')}\n{smallcaps('turn off')}: <code>/fsub off</code>\n{smallcaps('the bot must be admin in the channel.')}</blockquote>")
-    if a[0].lower() in ("off", "none", "0"): FSUB, FSLINK, FSTITLE = 0, "", ""
-    else:
-        try: ch_ = await raw_post("getChat", {"chat_id": int(a[0]) if a[0].lstrip("-").isdigit() else a[0]})
-        except Exception as e: return await reply(m, f"<b>❌ {smallcaps('cannot find that channel')}</b>\n\n<blockquote><code>{html.escape(str(e))}</code>\n{smallcaps('add me as admin there first.')}</blockquote>")
-        try: await raw_post("getChatMember", {"chat_id": ch_["id"], "user_id": m.from_user.id})
-        except Exception as e: return await reply(m, f"<b>❌ {smallcaps('i need admin rights there')}</b>\n\n<blockquote><code>{html.escape(str(e))}</code></blockquote>")
-        link = a[1] if len(a) > 1 and a[1].startswith("http") else (f"https://t.me/{ch_['username']}" if ch_.get("username") else ch_.get("invite_link") or "")
-        if not link:
-            try: link = await raw_post("exportChatInviteLink", {"chat_id": ch_["id"]})
-            except Exception: return await reply(m, f"<b>❌ {smallcaps('no invite link')}</b>\n\n<blockquote>{smallcaps('send it too:')} <code>/fsub {ch_['id']} https://t.me/+xxxx</code></blockquote>")
-        FSUB, FSLINK, FSTITLE = ch_["id"], link, ch_.get("title") or ""
-        FSC.clear()
-    await st.update_one({"_id": "bot"}, {"$set": {"fsub": FSUB, "fsub_link": FSLINK, "fsub_title": FSTITLE}}, upsert=True)
-    await reply(m, f"<b>✅ {smallcaps('updated')}</b>\n\n<blockquote>{smallcaps('force subscribe')}: " + (f"<b>{html.escape(FSTITLE)}</b> (<code>{FSUB}</code>)" if FSUB else smallcaps("off")) + "</blockquote>")
-
-@app.on_message(filters.command("stats"))
-async def stats(c, m):
-    if not (m.from_user and sudo(m.from_user.id)): return
-    await think(c, m)
-    g, h = await ch.count_documents({"type": "group"}), await ch.count_documents({"type": "channel"})
-    await ship(c, m, f"<b>📊 {smallcaps('bot statistics')}</b>\n\n<blockquote>{smallcaps('groups')}: {g}\n{smallcaps('channels')}: {h}\n{smallcaps('filters')}: {await fl.count_documents({})}\n{smallcaps('users')}: {await us.count_documents({})}\n{smallcaps('admins')}: {len(ADMINS)}</blockquote>")
-
-@app.on_message(filters.command(["addadmin", "rmadmin"]))
-async def admin_cmd(c, m):
-    if not m.from_user or m.from_user.id != OWNER: return
-    r = m.reply_to_message
-    try: u = r.from_user.id if r and r.from_user else int(m.command[1])
-    except Exception: return await reply(m, f"<b>❌ {smallcaps('usage error')}</b>\n\n<blockquote>{smallcaps('usage: /addadmin user_id (or reply to a user)')}</blockquote>")
-    await think(c, m, ticks=2, delay=0.3)
-    add = m.command[0] == "addadmin"
-    if add: await ad.update_one({"_id": u}, {"$set": {"a": 1}}, upsert=True); ADMINS.add(u)
-    else: await ad.delete_one({"_id": u}); ADMINS.discard(u)
-    status = smallcaps("added") if add else smallcaps("removed")
-    await ship(c, m, f"<b>✅ {smallcaps('updated')}</b>\n\n<blockquote>{status} {smallcaps('admin')} <code>{u}</code></blockquote>")
-
-@app.on_message(filters.command("admins"))
-async def admins(c, m):
-    if m.from_user and sudo(m.from_user.id):
-        await think(c, m, ticks=2, delay=0.3)
-        admin_list = ", ".join(f"<code>{a}</code>" for a in ADMINS) or smallcaps("none")
-        await ship(c, m, f"<b>👑 {smallcaps('admin list')}</b>\n\n<blockquote>{smallcaps('owner')}: <code>{OWNER}</code>\n{smallcaps('admins')}: {admin_list}</blockquote>")
-
-# ---------------------------------------------------- log channel commands
-def lg_view():
-    t = (f"<b>📋 {smallcaps('log channel')}</b>\n\n<blockquote>{smallcaps('channel')}: " + (f"<code>{LOGC}</code>" if LOGC else smallcaps("not set")) +
-         f"\n{smallcaps('set it with')} <code>/setlog -100xxxxxxxxxx</code> {smallcaps('(or /setlog inside a group, /setlog off)')}\n"
-         f"{smallcaps('the bot must be admin in the channel.')}</blockquote>\n<blockquote>{smallcaps('tap to choose what is logged.')}</blockquote>")
-    return t, [[R(f"{'✅' if k not in LOGOFF else '⛔'} {smallcaps(v)}", cb=f"lg:{k}", s="green" if k not in LOGOFF else "red")] for k, v in LOG_KINDS.items()]
-
-@app.on_message(filters.command("setlog"))
-async def setlog(c, m):
-    global LOGC
-    if not (m.from_user and sudo(m.from_user.id)): return
-    await think(c, m)
-    a = m.command[1] if len(m.command) > 1 else ""
-    if a.lower() in ("off", "none", "0"): LOGC = 0
-    else:
-        try: cid = int(a) if a else (m.chat.id if m.chat.type != T.PRIVATE else None)
-        except ValueError: cid = None
-        if cid is None: return await ship(c, m, f"<b>❌ {smallcaps('usage error')}</b>\n\n<blockquote>{smallcaps('usage:')} <code>/setlog -100xxxxxxxxxx</code>\n{smallcaps('or send /setlog inside the group you want to use.')}</blockquote>")
-        try: await ui_send(cid, f"<b>✅ {smallcaps('log channel connected')}</b>\n\n<blockquote>{smallcaps('i will send bot logs here.')}</blockquote>")
-        except Exception as e: return await ship(c, m, f"<b>❌ {smallcaps('cannot post there')}</b>\n\n<blockquote><code>{html.escape(str(e))}</code>\n{smallcaps('add me to that channel as an admin first.')}</blockquote>")
-        LOGC = cid
-    await st.update_one({"_id": "bot"}, {"$set": {"log": LOGC}}, upsert=True)
-    t, rows = lg_view()
-    await ship(c, m, t, rows)
-
-@app.on_message(filters.command("logs"))
-async def logs_cmd(c, m):
-    if not (m.from_user and sudo(m.from_user.id)): return
-    await think(c, m)
-    t, rows = lg_view()
-    await ship(c, m, t, rows)
-
-@cbq(r"^lg:")
-async def lg_cb(c, q):
-    if not sudo(q.from_user.id): return await q.answer(smallcaps("owner only."), show_alert=True)
-    k = q.data.split(":")[1]
-    if k in LOG_KINDS: LOGOFF.symmetric_difference_update({k})
-    await st.update_one({"_id": "bot"}, {"$set": {"off": sorted(LOGOFF)}}, upsert=True)
-    await q.answer()
-    t, rows = lg_view()
-    try: await edit_any(q.message.chat.id, q.message.id, t, rows)
-    except Exception: pass
-
-# ---------------------------------------------------- per-group small caps
-@app.on_message(filters.command("autodel"))
-async def autodel_cmd(c, m):
-    g = await target(c, m)
-    if g is None: return
-    await think(c, m)
-    a = (m.command[1].lower() if len(m.command) > 1 else "")
-    if a in ("off", "0", "no"): mins = 0
-    elif a.isdigit() and 1 <= int(a) <= 1440: mins = int(a)
-    else: return await ship(c, m, f"<b>🕒 {smallcaps('auto-delete posts')}</b>\n\n<blockquote>{smallcaps('now')}: {fmt_min((await cfg(g)).get('adm', AUTO_DELETE_MIN))}\n{smallcaps('usage:')} <code>/autodel 10</code> {smallcaps('(minutes, 1-1440) or')} <code>/autodel off</code></blockquote>")
-    await cfg_set(g, adm=mins)
-    await ship(c, m, f"<b>✅ {smallcaps('updated')}</b>\n\n<blockquote>{smallcaps('posts from filters are deleted after')} {fmt_min(mins)}.</blockquote>")
-
-def fmt_min(n): return smallcaps("off") if not n else f"{n} {smallcaps('min')}"
-
-@app.on_message(filters.command("smallcaps"))
-async def sc_cmd(c, m):
-    g = await target(c, m)
-    if g is None: return
-    a = (m.command[1].lower() if len(m.command) > 1 else "")
-    on = (a == "on") if a in ("on", "off") else bool((await cfg(g)).get("nsc"))
-    await cfg_set(g, nsc=not on)
-    if m.chat.type in GRP: SCON.set(on)
-    await think(c, m)
-    await ship(c, m, f"<b>✅ {smallcaps('updated')}</b>\n\n<blockquote>{smallcaps('small caps text is now')} <b>{smallcaps('on') if on else smallcaps('off')}</b> {smallcaps('for this group.')}</blockquote>")
-
-# ---------------------------------------------------- filter export / import / copy
-FKEYS = ("k", "t", "ft", "fid", "b", "mt")
 
 def clean_filters(items):
     out = []
