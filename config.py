@@ -157,6 +157,7 @@ HELP_TEXT = """<b>🤖 filter bot</b>
 • <code>/setwel</code> - welcome message editor (pm only)
 • <code>/s</code> name - search filters (anyone can use)
 • <code>/index</code> - browse all filters by letter A-Z
+• <code>/preview</code> word image-link - big image preview on a text filter (<code>/preview all link</code> = every filter with buttons)
 • <code>/autodel</code> 10 - delete filter posts after 10 min (off = keep)
 • <code>/export</code> - save filters as a file | <code>/import</code> (reply to it) [replace]
 • <code>/copyfilters</code> -100id - copy filters from another group
@@ -176,6 +177,7 @@ HELP_TEXT = """<b>🤖 filter bot</b>
 • <code>/addemoji</code> (send or reply with premium emojis) | <code>/emojis</code> | <code>/delemoji</code> emoji
 • <code>/setlog</code> -100id - log channel | <code>/logs</code> - choose what is logged
 • <code>/fsub</code> -100id - force subscribe channel (<code>/fsub off</code>)
+• <code>/restart</code> - restart the bot (owner)
 • <code>/info</code> - view user info</blockquote>
 """
 
