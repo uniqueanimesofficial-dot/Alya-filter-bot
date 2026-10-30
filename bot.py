@@ -1,4 +1,4 @@
-import asyncio, contextvars, difflib, hashlib, html, io, json, logging, os, random, re, sys, time
+import asyncio, contextvars, difflib, hashlib, html, io, json, logging, os, random, re, sys, time, unicodedata
 from collections import deque
 from datetime import datetime, timedelta
 from datetime import datetime
@@ -43,6 +43,16 @@ SCON = contextvars.ContextVar("scon", default=True)   # per-group small-caps swi
 def smallcaps(s):
     if not SCON.get(): return s or ""
     return "".join(SC.get(ch, ch) for ch in (s or "").lower())
+# ---- fold any fancy font / small caps / accents / full-width back to plain letters (for matching only)
+_LOOK = {"ɨ": "i", "ʍ": "m", "ɛ": "e", "ƈ": "c", "օ": "o", "ȶ": "t", "ʋ": "v", "ɦ": "h", "ʂ": "s", "ʐ": "z", "ɠ": "g", "ƙ": "k",
+         "ɱ": "m", "ɳ": "n", "ƥ": "p", "ʈ": "t", "ɖ": "d", "ɽ": "r", "ʝ": "j", "ɾ": "r", "ᴦ": "r", "ᴨ": "n", "ᴎ": "n", "ᴚ": "r", "ᴙ": "r"}
+_FOLD = {v: k for k, v in SC.items() if v and v != k}
+_FOLD.update(_LOOK)
+def fold(t):
+    t = "".join(_FOLD.get(ch, ch) for ch in (t or ""))
+    t = unicodedata.normalize("NFKD", t)
+    return "".join(ch for ch in t if not unicodedata.combining(ch) and ch not in "\u200b\u200c\u200d\ufe0f").casefold()
+
 def is_url(img): return img.startswith("http")
 def sty(w):
     w = (w or "").lower()
@@ -567,10 +577,30 @@ async def api_send(chat, reply_id, d):
         pl[ft] = d["fid"]
         if ft not in ("sticker", "video_note") and d.get("t"): pl["caption"], pl["parse_mode"] = d["t"], "HTML"
         method = "send" + "".join(w.title() for w in ft.split("_"))
+    elif d.get("img"):
+        u_ = d["img"]
+        pl.update(text=f'<a href="{html.escape(u_, quote=True)}">\u200b</a>{d.get("t") or "✦"}', parse_mode="HTML",
+                  link_preview_options={"url": u_, "show_above_text": True, "prefer_large_media": True})
+        method = "sendMessage"
     else:
         pl.update(text=d.get("t") or ".", parse_mode="HTML", link_preview_options={"is_disabled": True})
         method = "sendMessage"
     return await raw_post(method, pl)
+
+IMG_RX = re.compile(r'(?<![">=/\w])https?://[^\s<>"]+?\.(?:jpe?g|png|webp|gif)(?:\?[^\s<>"]*)?|(?<![">=/\w])https?://(?:i\.ibb\.co|telegra\.ph/file|graph\.org/file|files\.catbox\.moe|i\.imgur\.com)/[^\s<>"]+', re.I)
+
+async def prep(g, d):
+    """text filters show a big image link preview: the filter's own /preview image, an image link written in its text,
+    or (for filters with buttons) the group's default image from /preview all"""
+    d = dict(d)
+    if d.get("b"): d["b"] = apply_default(d["b"])
+    if d.get("ft"): return d
+    t = d.get("t") or ""
+    if not d.get("img"):
+        f = IMG_RX.search(t)
+        if f: d["img"], d["t"] = f[0], (t[:f.start()] + t[f.end():]).strip()
+        elif d.get("b"): d["img"] = (await cfg(g)).get("pimg") or None
+    return d
 
 async def send(c, m, d, reply_id=None):
     d = dict(d)
@@ -806,7 +836,11 @@ async def rm(c, m):
     mt, arg = kmode(arg)
     k, _ = kwsplit(arg, mt != "regex")
     if not arg.lstrip().startswith(('"', "&quot;", "“")): k = plain(arg) if mt == "regex" else plain(arg).lower()
-    r = await fl.delete_one({"g": g, "k": k}); KW.pop(g, None)
+    r = await fl.delete_one({"g": g, "k": k})
+    if not r.deleted_count and mt != "regex":
+        alt = next((x for x, mm in await kws(g) if mm != "regex" and nrm(x) == nrm(k)), None)
+        if alt: r = await fl.delete_one({"g": g, "k": alt}); k = alt
+    KW.pop(g, None)
     if r.deleted_count:
         L("filter", f"<b>🗑 {smallcaps('filter deleted')}</b>\n\n<blockquote>{smallcaps('group')}: {html.escape(await title(c, g))} (<code>{g}</code>)\n{smallcaps('keyword')}: <code>{html.escape(k)}</code>\n{smallcaps('by')}: {m.from_user.mention}</blockquote>")
         await ship(c, m, f"<b>✅ {smallcaps('deleted')}</b>\n\n<blockquote>{smallcaps('filter')} <code>{k}</code> {smallcaps('deleted.')}</blockquote>")
@@ -832,6 +866,28 @@ async def delall_cb(c, q):
     r = await fl.delete_many({"g": g}); KW.pop(g, None)
     L("filter", f"<b>🗑 {smallcaps('all filters deleted')}</b>\n\n<blockquote>{smallcaps('group')}: {html.escape(await title(c, g))} (<code>{g}</code>)\n{smallcaps('count')}: {r.deleted_count}\n{smallcaps('by')}: {q.from_user.mention}</blockquote>")
     await edit_any(q.message.chat.id, q.message.id, f"<b>✅ {smallcaps('success')}</b>\n\n<blockquote>{smallcaps('deleted')} {r.deleted_count} {smallcaps('filter(s).')}</blockquote>")
+
+@app.on_message(filters.command("preview"))
+async def preview_cmd(c, m):
+    g = await target(c, m)
+    if g is None: return
+    await think(c, m)
+    a = m.command[1:]
+    use = f"<b>🖼 {smallcaps('image preview')}</b>\n\n<blockquote>• <code>/preview keyword https://i.ibb.co/x.jpg</code>\n• <code>/preview keyword off</code>\n• <code>/preview all https://i.ibb.co/x.jpg</code> ({smallcaps('default for every filter with buttons')})\n• <code>/preview all off</code>\n\n{smallcaps('an image link written inside a filter text also becomes the preview automatically.')}</blockquote>"
+    if len(a) < 2: return await ship(c, m, use)
+    val, key = a[-1], " ".join(a[:-1]).strip()
+    off = val.lower() in ("off", "none", "remove")
+    if not off and not val.lower().startswith("http"): return await ship(c, m, use)
+    if key.lower() == "all":
+        await cfg_set(g, pimg=None if off else val)
+        return await ship(c, m, f"<b>✅ {smallcaps('updated')}</b>\n\n<blockquote>{smallcaps('default preview image')}: " + (smallcaps("off") if off else f"<code>{html.escape(val)}</code>") + "</blockquote>")
+    k = plain(key).lower()
+    r = await fl.update_one({"g": g, "k": k}, {"$unset": {"img": ""}} if off else {"$set": {"img": val}})
+    if not r.matched_count:
+        r = await fl.update_one({"g": g, "k": plain(key)}, {"$unset": {"img": ""}} if off else {"$set": {"img": val}})
+    if not r.matched_count: return await ship(c, m, f"<b>❌ {smallcaps('not found')}</b>\n\n<blockquote>{smallcaps('no such filter.')}</blockquote>")
+    KW.pop(g, None)
+    await ship(c, m, f"<b>✅ {smallcaps('updated')}</b>\n\n<blockquote><code>{html.escape(k)}</code>: " + (smallcaps("preview removed") if off else smallcaps("preview image set")) + "</blockquote>")
 
 @app.on_message(filters.command("color"))
 async def color(c, m):
@@ -1420,9 +1476,10 @@ async def kws(g):
 
 def hit(k, mt, txt):
     try:
-        if mt == "contains": return k.lower() in txt.lower()
-        if mt == "regex": return re.search(k, txt, re.I) is not None
-        return re.search(rf"(?<!\w){re.escape(k)}(?!\w)", txt, re.I) is not None
+        ft_, fk = fold(txt), fold(k)
+        if mt == "contains": return fk in ft_
+        if mt == "regex": return re.search(k, txt, re.I) is not None or re.search(k, ft_, re.I) is not None
+        return re.search(rf"(?<!\w){re.escape(fk)}(?!\w)", ft_) is not None
     except re.error: return False
 
 def stem(w):
@@ -1431,7 +1488,7 @@ def stem(w):
         if len(w) > 3 and w.endswith(suf): return w[:-len(suf)] + rep_
     return w
 
-def toks(t): return [stem(x) for x in re.findall(r"\w+", t.lower()) if len(x) >= 3]
+def toks(t): return [stem(x) for x in re.findall(r"\w+", fold(t)) if len(x) >= 3]
 
 def close_matches(txt, ks, n=5):
     mt = set(toks(txt))
@@ -1449,7 +1506,7 @@ def close_matches(txt, ks, n=5):
         if sc: out.append((sc, k))
     return [k for _, k in sorted(out, key=lambda x: (-x[0], x[1]))[:n]]
 
-def nrm(t): return " ".join(re.sub(r"[^\w\s]", " ", (t or "").lower()).split())
+def nrm(t): return " ".join(re.sub(r"[^\w\s]", " ", fold(t)).split())
 
 def search_keys(q, ks, n=8):
     """every non-regex filter that shares words with the query, best first"""
@@ -1518,6 +1575,7 @@ async def sweeper():
 async def deliver(c, m, g, k, reply_id=None):
     d = await fl.find_one({"g": g, "k": k})
     if not d: return
+    d = await prep(g, d)
     if m.from_user and not await fs_ok(c, m.from_user.id):
         return await fs_prompt(c, m, f"fj:{g}:{kh(k)}:{m.id}", 45)
     rid = reply_id or (m.reply_to_message.id if m.reply_to_message else m.id)
@@ -1533,7 +1591,6 @@ async def deliver(c, m, g, k, reply_id=None):
     L("hit", f"<b>🎯 {smallcaps('filter triggered')}</b>\n\n<blockquote>{smallcaps('group')}: {html.escape(m.chat.title or str(g))} (<code>{g}</code>)\n{smallcaps('keyword')}: <code>{html.escape(k)}</code>\n"
              f"{smallcaps('user')}: {u.mention + ' (<code>' + str(u.id) + '</code>)' if u else smallcaps('anonymous')}" + (f"\n<a href=\"{lk}\">{smallcaps('open message')}</a>" if lk else "") + "</blockquote>")
 
-@app.on_message(filters.command(["s", "search"]))
 async def run_search(c, m, g, q):
     await think(c, m)
     ks, n = await kws(g), nrm(q)
@@ -1548,44 +1605,58 @@ async def run_search(c, m, g, q):
         return bg(_ttl(CQMsg(m.chat.id, m.chat.type, mid), 20))
     await show_buttons(c, m, g, res, "results", 120)
 
-PQ = {}
-async def pm_group(c, m, kind, q=""):
-    """in the bot's pm anybody can search: use the connected group, the remembered one, the only group, or ask"""
-    u = m.from_user.id
-    d = await cn.find_one({"_id": u}) or {}
-    if d.get("active"): return d["active"]
-    sel = (await us.find_one({"_id": u}) or {}).get("sel")
-    if sel and await ch.find_one({"_id": sel}): return sel
+PQ, UGC, IXSRC = {}, {}, {}
+
+async def user_groups(u):
+    """groups (with filters) where the bot is added and this user is a member - cached 60s"""
+    t = UGC.get(u)
+    if t and time.time() - t[1] < 60: return t[0]
     ok = []
     for g in [x["_id"] async for x in ch.find({"type": "group"})][:30]:
         if not await fl.find_one({"g": g}, {"_id": 1}): continue
         try: r = await raw_post("getChatMember", {"chat_id": g, "user_id": u})
         except Exception: continue
         if r.get("status") in ("creator", "administrator", "member") or (r.get("status") == "restricted" and r.get("is_member")): ok.append(g)
+    UGC[u] = (ok, time.time())
+    return ok
+
+async def pick_rows(c, u, kind):
+    gs = await user_groups(u)
+    ts = await asyncio.gather(*(title(c, g) for g in gs))
+    return [[R(smallcaps(t)[:40], cb=f"pg:{g}:{kind}", s="primary")] for g, t in zip(gs, ts)]
+
+async def pm_group(c, m, kind, q=""):
+    """in the bot's pm anybody can search: the group they picked, their connected group, the only group, or ask"""
+    u = m.from_user.id
+    sel = (await us.find_one({"_id": u}) or {}).get("sel")
+    if sel and await ch.find_one({"_id": sel}): return sel
+    act_ = (await cn.find_one({"_id": u}) or {}).get("active")
+    if act_: return act_
+    ok = await user_groups(u)
     if not ok:
         await reply(m, f"<b>❌ {smallcaps('no group found')}</b>\n\n<blockquote>{smallcaps('join a group where i am added, then try again. or use me inside the group.')}</blockquote>")
         return None
     if len(ok) == 1: return ok[0]
     PQ[u] = (m, q)
-    ts = await asyncio.gather(*(title(c, g) for g in ok))
-    rows = [[R(smallcaps(t)[:40], cb=f"pg:{g}:{kind}", s="primary")] for g, t in zip(ok, ts)]
     await clear_ld(c, m.chat.id, u)
-    await ship(c, m, f"<b>👥 {smallcaps('choose a group')}</b>\n\n<blockquote>{smallcaps('which group do you want to search?')}</blockquote>", rows)
+    mid = await ship(c, m, f"<b>👥 {smallcaps('choose a group')}</b>\n\n<blockquote>{smallcaps('which group do you want to search?')}</blockquote>", await pick_rows(c, u, kind))
+    if kind == "i": IXSRC[(m.chat.id, mid)] = m.id
+    return None
 
 @cbq(r"^pg:")
 async def pg_cb(c, q):
     _, g, kind = q.data.split(":"); g, u = int(g), q.from_user.id
-    if g:
-        await us.update_one({"_id": u}, {"$set": {"sel": g}}, upsert=True)
-    else:                                   # "change group"
-        await us.update_one({"_id": u}, {"$unset": {"sel": ""}})
-        await q.answer(smallcaps("send /index or /s again to choose."), show_alert=True); return
+    if not g:                                # "change group": show the list right here
+        await q.answer()
+        rows = await pick_rows(c, u, "i") + [[R(smallcaps("close"), cb="ix:x", s=BTN_COLOR.get("close", "red"))]]
+        return await edit_any(q.message.chat.id, q.message.id, f"<b>👥 {smallcaps('choose a group')}</b>\n\n<blockquote>{smallcaps('which group do you want to browse?')}</blockquote>", rows)
+    await us.update_one({"_id": u}, {"$set": {"sel": g}}, upsert=True)
     await q.answer()
     m, query = PQ.pop(u, (None, ""))
     if kind == "s" and m and query:
         await q.message.delete()
         return await run_search(c, m, g, query)
-    txt, rows = await ix_home(g, True)
+    txt, rows = await ix_home(g, True, u)
     await edit_any(q.message.chat.id, q.message.id, txt, rows)
 
 @app.on_message(filters.command(["s", "search"]))
@@ -1607,8 +1678,7 @@ async def fm_cb(c, q):
     d = await fl.find_one({"g": g, "k": k}) if k else None
     if not d: return await q.answer(smallcaps("filter not found."), show_alert=True)
     await q.answer()
-    d = dict(d)
-    if d.get("b"): d["b"] = apply_default(d["b"])
+    d = await prep(g, d)
     try: await after_post(q.message.chat.id, (await api_send(q.message.chat.id, int(mid), d)).get("message_id"), g)
     except Exception as e: log.warning("fm send failed: %s", e)
     await q.message.delete()
@@ -1655,7 +1725,7 @@ async def tracker(c, u):
 LETTERS = [chr(i) for i in range(65, 91)]
 
 def ix_letter(k):
-    ch_ = next((x for x in k if x.isalnum()), "#").upper()
+    ch_ = next((x for x in fold(k) if x.isalnum()), "#").upper()
     return ch_ if ch_ in LETTERS else "#"
 
 async def ix_groups(g):
@@ -1668,14 +1738,15 @@ async def ix_groups(g):
 def ix_head(extra=""):
     return f"<b>✦ {smallcaps('index directory')} — [{html.escape(INDEX_CATEGORY)}]</b>{extra}\n\n"
 
-async def ix_home(g, pm):
+async def ix_home(g, pm, uid=None):
     d = await ix_groups(g)
     total = sum(len(v) for v in d.values())
     txt = (ix_head() + f"<blockquote>◍ <b>{smallcaps('category')}</b> : {html.escape(INDEX_CATEGORY)}\n◍ <b>{smallcaps('total posts')}</b> : {total}</blockquote>\n"
            f"<blockquote>≡ {smallcaps('select a letter below to browse indexed posts.')}</blockquote>")
     btn = [R(x, cb=f"ix:{g}:{x}:0", s="primary" if x in d else None) for x in LETTERS + ["#"]]
     rows = [btn[i:i + 6] for i in range(0, 24, 6)] + [btn[24:]]
-    last = ([R(smallcaps("back"), cb="sb:back", s="primary"), R(smallcaps("change group"), cb="pg:0:i")] if pm else []) + [R(smallcaps("close"), cb="ix:x", s=BTN_COLOR.get("close", "red"))]
+    multi = bool(pm and uid and len(await user_groups(uid)) > 1)
+    last = ([R(smallcaps("back"), cb="sb:back", s="primary")] if pm else []) + ([R(smallcaps("change group"), cb="pg:0:i")] if multi else []) + [R(smallcaps("close"), cb="ix:x", s=BTN_COLOR.get("close", "red"))]
     return txt, rows + [last]
 
 async def ix_list(g, letter, page):
@@ -1694,19 +1765,32 @@ async def index_cmd(c, m):
     g = m.chat.id if m.chat.type in GRP else await pm_group(c, m, "i")
     if not g: return
     await think(c, m)
-    txt, rows = await ix_home(g, m.chat.type == T.PRIVATE)
-    await ship(c, m, txt, rows)
+    txt, rows = await ix_home(g, m.chat.type == T.PRIVATE, m.from_user.id)
+    IXSRC[(m.chat.id, await ship(c, m, txt, rows))] = m.id
+    while len(IXSRC) > 500: IXSRC.pop(next(iter(IXSRC)))
 
 @cbq(r"^ix:")
 async def ix_cb(c, q):
     p = q.data.split(":")
     if p[1] == "x":
-        await q.answer(); return await q.message.delete()
+        await q.answer()
+        chat, mid = q.message.chat.id, q.message.id
+        cmd = IXSRC.pop((chat, mid), None)
+        if not cmd:
+            try: cmd = (await c.get_messages(chat, mid)).reply_to_message_id
+            except Exception: cmd = None
+        ids = [mid] + ([cmd] if cmd else [])
+        try: return await raw_post("deleteMessages", {"chat_id": chat, "message_ids": ids})
+        except Exception:
+            for i in ids:
+                try: await raw_post("deleteMessage", {"chat_id": chat, "message_id": i})
+                except Exception: pass
+        return
     g, letter, page = int(p[1]), p[2], int(p[3])
     if letter != "*" and not (await ix_groups(g)).get(letter):
         return await q.answer(smallcaps(f"no posts under {letter}."), show_alert=True)
     await q.answer()
-    txt, rows = await (ix_home(g, q.message.chat.type == T.PRIVATE) if letter == "*" else ix_list(g, letter, page))
+    txt, rows = await (ix_home(g, q.message.chat.type == T.PRIVATE, q.from_user.id) if letter == "*" else ix_list(g, letter, page))
     try: await edit_any(q.message.chat.id, q.message.id, txt, rows)
     except Exception as e: log.warning("index edit failed: %s", e)
 
@@ -1718,8 +1802,7 @@ async def ig_cb(c, q):
     d = await fl.find_one({"g": g, "k": k}) if k else None
     if not d: return await q.answer(smallcaps("not found."), show_alert=True)
     await q.answer()
-    d = dict(d)
-    if d.get("b"): d["b"] = apply_default(d["b"])
+    d = await prep(g, d)
     try: await after_post(q.message.chat.id, (await api_send(q.message.chat.id, q.message.id, d)).get("message_id"), g)
     except Exception as e: log.warning("index send failed: %s", e)
     L("hit", f"<b>🎯 {smallcaps('filter picked from index')}</b>\n\n<blockquote>{smallcaps('group')}: <code>{g}</code>\n{smallcaps('keyword')}: <code>{html.escape(k)}</code>\n{smallcaps('user')}: {q.from_user.mention} (<code>{q.from_user.id}</code>)</blockquote>")
@@ -1840,8 +1923,7 @@ async def fj_cb(c, q):
     k = next((x for x in [d["k"] async for d in fl.find({"g": g}, {"k": 1})] if kh(x) == h), None)
     d = await fl.find_one({"g": g, "k": k}) if k else None
     if d:
-        d = dict(d)
-        if d.get("b"): d["b"] = apply_default(d["b"])
+        d = await prep(g, d)
         try: await after_post(q.message.chat.id, (await api_send(q.message.chat.id, int(mid), d)).get("message_id"), g)
         except Exception as e: log.warning("fj send failed: %s", e)
     await q.message.delete()
@@ -1966,7 +2048,7 @@ async def sc_cmd(c, m):
     await ship(c, m, f"<b>✅ {smallcaps('updated')}</b>\n\n<blockquote>{smallcaps('small caps text is now')} <b>{smallcaps('on') if on else smallcaps('off')}</b> {smallcaps('for this group.')}</blockquote>")
 
 # ---------------------------------------------------- filter export / import / copy
-FKEYS = ("k", "t", "ft", "fid", "b", "mt")
+FKEYS = ("k", "t", "ft", "fid", "b", "mt", "img")
 
 def clean_filters(items):
     out = []
@@ -1985,7 +2067,7 @@ def clean_filters(items):
             if not isinstance(row, list): continue
             r = [{k: x[k] for k in ("text", "url", "s", "i") if isinstance(x.get(k), str)} for x in row if isinstance(x, dict) and isinstance(x.get("text"), str) and isinstance(x.get("url"), str)]
             if r: b.append(r)
-        out.append({"k": d["k"] if mt == "regex" else d["k"].lower(), "t": t, "ft": ft, "fid": d.get("fid") if ft else None, "b": b, "mt": mt})
+        out.append({"k": d["k"] if mt == "regex" else d["k"].lower(), "t": t, "ft": ft, "fid": d.get("fid") if ft else None, "b": b, "mt": mt, "img": d["img"] if isinstance(d.get("img"), str) and d["img"].startswith("http") else None})
     return out
 
 async def merge_filters(g, items, replace=False):
